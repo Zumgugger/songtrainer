@@ -23,6 +23,15 @@ def init_db():
     with get_db() as conn:
         cursor = conn.cursor()
         
+        # Create repertoires table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS repertoires (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                date_created TEXT NOT NULL
+            )
+        ''')
+        
         # Create songs table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS songs (
@@ -30,14 +39,17 @@ def init_db():
                 title TEXT NOT NULL,
                 artist TEXT NOT NULL,
                 song_number INTEGER NOT NULL,
+                repertoire_id INTEGER NOT NULL,
                 priority TEXT NOT NULL CHECK(priority IN ('low', 'mid', 'high')),
                 practice_count INTEGER DEFAULT 0,
                 practice_target INTEGER DEFAULT 0,
                 last_practiced TEXT,
                 date_added TEXT NOT NULL,
+                release_date TEXT,
                 notes TEXT,
                 audio_path TEXT,
-                chart_path TEXT
+                chart_path TEXT,
+                FOREIGN KEY (repertoire_id) REFERENCES repertoires (id) ON DELETE CASCADE
             )
         ''')
         
@@ -72,6 +84,18 @@ def init_db():
             )
         ''')
         
+        # Create repertoire_skills table (default skills for each repertoire)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS repertoire_skills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repertoire_id INTEGER NOT NULL,
+                skill_id INTEGER NOT NULL,
+                FOREIGN KEY (repertoire_id) REFERENCES repertoires (id) ON DELETE CASCADE,
+                FOREIGN KEY (skill_id) REFERENCES skills (id) ON DELETE CASCADE,
+                UNIQUE(repertoire_id, skill_id)
+            )
+        ''')
+        
         # Insert default skills if they don't exist
         default_skills = [
             'Knowing the song',
@@ -85,6 +109,23 @@ def init_db():
                 'INSERT OR IGNORE INTO skills (name) VALUES (?)',
                 (skill,)
             )
+        
+        # Create default repertoire if none exists
+        repertoire_count = cursor.execute('SELECT COUNT(*) FROM repertoires').fetchone()[0]
+        if repertoire_count == 0:
+            cursor.execute(
+                'INSERT INTO repertoires (name, date_created) VALUES (?, ?)',
+                ('My Repertoire', datetime.now().isoformat())
+            )
+            repertoire_id = cursor.lastrowid
+            
+            # Assign all default skills to the default repertoire
+            skill_ids = cursor.execute('SELECT id FROM skills').fetchall()
+            for skill in skill_ids:
+                cursor.execute(
+                    'INSERT INTO repertoire_skills (repertoire_id, skill_id) VALUES (?, ?)',
+                    (repertoire_id, skill['id'])
+                )
         
         print("Database initialized successfully!")
 
@@ -108,25 +149,102 @@ def ensure_chart_path_column():
             cursor.execute('ALTER TABLE songs ADD COLUMN chart_path TEXT')
             print('Added chart_path column to songs table')
 
-def ensure_indexes_and_normalize():
-    """Create necessary indexes and normalize song_number to be 1..N sequential."""
+def ensure_repertoire_id_column():
+    """Ensure songs.repertoire_id column exists and migrate existing songs to default repertoire."""
     with get_db() as conn:
         cursor = conn.cursor()
-        # Ensure unique index on song_number for strict ordering
+        cols = cursor.execute('PRAGMA table_info(songs)').fetchall()
+        colnames = {c['name'] for c in cols}
+        
+        if 'repertoire_id' not in colnames:
+            # Create default repertoire if it doesn't exist
+            default_rep = cursor.execute(
+                "SELECT id FROM repertoires WHERE name = 'My Repertoire'"
+            ).fetchone()
+            
+            if not default_rep:
+                cursor.execute(
+                    'INSERT INTO repertoires (name, date_created) VALUES (?, ?)',
+                    ('My Repertoire', datetime.now().isoformat())
+                )
+                default_rep_id = cursor.lastrowid
+                
+                # Assign all skills to default repertoire
+                skill_ids = cursor.execute('SELECT id FROM skills').fetchall()
+                for skill in skill_ids:
+                    cursor.execute(
+                        'INSERT OR IGNORE INTO repertoire_skills (repertoire_id, skill_id) VALUES (?, ?)',
+                        (default_rep_id, skill['id'])
+                    )
+            else:
+                default_rep_id = default_rep['id']
+            
+            # Add column and set all existing songs to default repertoire
+            cursor.execute('ALTER TABLE songs ADD COLUMN repertoire_id INTEGER')
+            cursor.execute('UPDATE songs SET repertoire_id = ?', (default_rep_id,))
+            print(f'Added repertoire_id column and migrated {cursor.rowcount} songs to default repertoire')
+            
+            # Drop old unique index and create new one
+            cursor.execute('DROP INDEX IF EXISTS idx_songs_song_number')
+            cursor.execute('''
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_repertoire_song_number
+                ON songs (repertoire_id, song_number)
+            ''')
+            print('Updated song_number index to be per-repertoire')
+
+def ensure_release_date_column():
+    """Ensure songs.release_date column exists for optional release date tracking."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(songs)').fetchall()
+        colnames = {c['name'] for c in cols}
+        if 'release_date' not in colnames:
+            cursor.execute('ALTER TABLE songs ADD COLUMN release_date TEXT')
+            print('Added release_date column to songs table')
+
+def ensure_repertoire_sort_order_column():
+    """Ensure repertoires.sort_order column exists to allow manual ordering of repertoires."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(repertoires)').fetchall()
+        colnames = {c['name'] for c in cols}
+        if 'sort_order' not in colnames:
+            cursor.execute('ALTER TABLE repertoires ADD COLUMN sort_order INTEGER')
+            # Initialize sort_order sequentially by id
+            rows = cursor.execute('SELECT id FROM repertoires ORDER BY id').fetchall()
+            for i, row in enumerate(rows, start=1):
+                cursor.execute('UPDATE repertoires SET sort_order = ? WHERE id = ?', (i, row['id']))
+            print('Added sort_order column to repertoires and initialized ordering')
+
+def ensure_indexes_and_normalize():
+    """Create necessary indexes and normalize song_number to be 1..N sequential per repertoire."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # Ensure unique index on (repertoire_id, song_number) for strict ordering per repertoire
         cursor.execute('''
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_song_number
-            ON songs (song_number)
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_repertoire_song_number
+            ON songs (repertoire_id, song_number)
         ''')
 
-        # Normalize ordering: sort by current song_number, then id as tiebreaker
-        rows = cursor.execute('SELECT id FROM songs ORDER BY song_number ASC, id ASC').fetchall()
-        for i, row in enumerate(rows, start=1):
-            cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, row['id']))
+        # Normalize ordering per repertoire: sort by current song_number, then id as tiebreaker
+        repertoires = cursor.execute('SELECT id FROM repertoires').fetchall()
+        for rep in repertoires:
+            rows = cursor.execute(
+                'SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC, id ASC',
+                (rep['id'],)
+            ).fetchall()
+            for i, row in enumerate(rows, start=1):
+                cursor.execute(
+                    'UPDATE songs SET song_number = ? WHERE id = ?',
+                    (i, row['id'])
+                )
 
-        print("Indexes ensured and song numbers normalized.")
+        print("Indexes ensured and song numbers normalized per repertoire.")
 
 if __name__ == '__main__':
     init_db()
-    ensure_indexes_and_normalize()
     ensure_audio_path_column()
     ensure_chart_path_column()
+    ensure_repertoire_id_column()
+    ensure_release_date_column()
+    ensure_indexes_and_normalize()

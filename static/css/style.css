@@ -72,6 +72,97 @@ header h1 {
     gap: 10px;
 }
 
+/* ==================== REPERTOIRE TABS ==================== */
+
+.repertoire-tabs {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    overflow-x: auto;
+}
+
+.tabs {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    overflow-x: auto;
+}
+
+.tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-hover);
+    border: 2px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    position: relative;
+}
+
+.tab:hover {
+    background: #e8eaf0;
+    border-color: var(--primary);
+}
+
+.tab.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.tab-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.tab-count {
+    background: rgba(0,0,0,0.1);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: bold;
+}
+
+.tab.active .tab-count {
+    background: rgba(255,255,255,0.2);
+}
+
+.tab-edit-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    padding: 2px 4px;
+}
+
+.tab-edit-btn:hover {
+    opacity: 1;
+}
+
+.tab.active .tab-edit-btn {
+    opacity: 0.8;
+}
+
+.tab.active .tab-edit-btn:hover {
+    opacity: 1;
+}
+
+.repertoire-tabs .btn-small {
+    padding: 8px 14px;
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
 /* ==================== OVERALL PROGRESS ==================== */
 
 .overall-progress {
@@ -542,6 +633,36 @@ header h1 {
     animation: slideDown 0.3s ease;
 }
 
+.modal-content.draggable-modal {
+    position: absolute;
+    margin: 0;
+    top: 80px;
+    left: 80px;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.modal-drag-handle {
+    cursor: move;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    display: inline-block;
+    margin-bottom: 8px;
+    user-select: none;
+}
+
+.modal-content.draggable-modal .modal-drag-handle {
+    background: linear-gradient(135deg, var(--bg-hover), var(--bg-primary));
+}
+
+.modal-content.modal-moving {
+    opacity: 0.95;
+    box-shadow: var(--shadow-lg);
+}
+
 @keyframes slideDown {
     from {
         transform: translateY(-50px);
@@ -749,5 +870,12 @@ header h1 {
 
     .form-row {
         grid-template-columns: 1fr;
+    }
+
+    .modal-content.draggable-modal {
+        left: 10px !important;
+        top: 10px !important;
+        width: calc(100% - 20px);
+        max-width: none;
     }
 }

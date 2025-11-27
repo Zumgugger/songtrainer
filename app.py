@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file, abort, Response
 from werkzeug.utils import secure_filename
-from database import get_db, init_db, ensure_indexes_and_normalize, ensure_audio_path_column, ensure_chart_path_column
+from database import get_db, init_db, ensure_indexes_and_normalize, ensure_audio_path_column, ensure_chart_path_column, ensure_repertoire_id_column, ensure_release_date_column, ensure_repertoire_sort_order_column
 from datetime import datetime
 import sqlite3
 import os
@@ -14,21 +14,36 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Initialize database on first run
 if not os.path.exists('songs.db'):
     init_db()
-    ensure_indexes_and_normalize()
     ensure_audio_path_column()
     ensure_chart_path_column()
+    ensure_repertoire_id_column()
+    ensure_release_date_column()
+    ensure_repertoire_sort_order_column()
+    ensure_indexes_and_normalize()
 else:
     # Ensure constraints exist and ordering is normalized on startup
-    try:
-        ensure_indexes_and_normalize()
-    except Exception:
-        pass
     try:
         ensure_audio_path_column()
     except Exception:
         pass
     try:
         ensure_chart_path_column()
+    except Exception:
+        pass
+    try:
+        ensure_repertoire_id_column()
+    except Exception:
+        pass
+    try:
+        ensure_release_date_column()
+    except Exception:
+        pass
+    try:
+        ensure_repertoire_sort_order_column()
+    except Exception:
+        pass
+    try:
+        ensure_indexes_and_normalize()
     except Exception:
         pass
 
@@ -48,14 +63,21 @@ def admin():
 
 @app.route('/api/songs', methods=['GET'])
 def get_songs():
-    """Get all songs with their skills"""
+    """Get all songs with their skills, optionally filtered by repertoire"""
+    repertoire_id = request.args.get('repertoire_id', type=int)
+    
     with get_db() as conn:
         cursor = conn.cursor()
         
-        # Get all songs ordered by song_number (1..N)
-        songs = cursor.execute('''
-            SELECT * FROM songs ORDER BY song_number ASC
-        ''').fetchall()
+        # Get songs, optionally filtered by repertoire
+        if repertoire_id:
+            songs = cursor.execute('''
+                SELECT * FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC
+            ''', (repertoire_id,)).fetchall()
+        else:
+            songs = cursor.execute('''
+                SELECT * FROM songs ORDER BY repertoire_id, song_number ASC
+            ''').fetchall()
         
         songs_list = []
         for song in songs:
@@ -89,15 +111,17 @@ def create_song():
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT INTO songs (title, artist, song_number, priority, practice_target, date_added, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO songs (title, artist, song_number, repertoire_id, priority, practice_target, date_added, release_date, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['title'],
             data['artist'],
             data.get('song_number', 1),
+            data['repertoire_id'],
             data.get('priority', 'mid'),
             data.get('practice_target', 0),
             datetime.now().isoformat(),
+            data.get('release_date'),
             data.get('notes', '')
         ))
         
@@ -122,42 +146,72 @@ def update_song(song_id):
         cursor = conn.cursor()
         
         # Get current song_number before update
-        old_song = cursor.execute('SELECT song_number FROM songs WHERE id = ?', (song_id,)).fetchone()
+        old_song = cursor.execute('SELECT song_number, repertoire_id FROM songs WHERE id = ?', (song_id,)).fetchone()
         if not old_song:
             return jsonify({'error': 'Song not found'}), 404
         
         old_number = old_song['song_number']
-        new_number = data['song_number']
+        # Accept new_number; if missing or invalid fallback to old_number
+        new_number = data.get('song_number', old_number)
+        if not isinstance(new_number, int):
+            try:
+                new_number = int(new_number)
+            except Exception:
+                new_number = old_number
+        # Use existing repertoire_id (ignore changes via edit form to avoid cross-repertoire side-effects)
+        repertoire_id = old_song['repertoire_id']
         
-        # Reorder other songs if song_number changed
+        # Reorder other songs if song_number changed (within same repertoire)
         if old_number != new_number:
+            # Get total count of songs in repertoire
+            max_row = cursor.execute('SELECT COUNT(*) as cnt FROM songs WHERE repertoire_id = ?', (repertoire_id,)).fetchone()
+            max_count = max_row['cnt']
+            
+            # Allow any number - will be normalized to valid range
+            # Clamp to reasonable bounds (1 to max_count)
+            if new_number < 1:
+                new_number = 1
+            if new_number > max_count:
+                new_number = max_count
+
+            # Use sentinel approach: move target song out of the way first
+            sentinel = max_count + 100  # Safe temporary value
+            cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (sentinel, song_id))
+
             if new_number < old_number:
-                # Moving up (lower number): increment songs between new and old position
+                # Moving up: shift songs in range [new_number, old_number-1] down by 1
                 cursor.execute('''
-                    UPDATE songs 
-                    SET song_number = song_number + 1 
-                    WHERE song_number >= ? AND song_number < ? AND id != ?
-                ''', (new_number, old_number, song_id))
+                    UPDATE songs SET song_number = song_number + 1
+                    WHERE repertoire_id = ? AND song_number >= ? AND song_number < ?
+                ''', (repertoire_id, new_number, old_number))
             else:
-                # Moving down (higher number): decrement songs between old and new position
+                # Moving down: shift songs in range (old_number, new_number] up by 1
                 cursor.execute('''
-                    UPDATE songs 
-                    SET song_number = song_number - 1 
-                    WHERE song_number > ? AND song_number <= ? AND id != ?
-                ''', (old_number, new_number, song_id))
+                    UPDATE songs SET song_number = song_number - 1
+                    WHERE repertoire_id = ? AND song_number > ? AND song_number <= ?
+                ''', (repertoire_id, old_number, new_number))
+
+            # Place moved song at desired position
+            cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (new_number, song_id))
+
+            # Normalize all song_numbers to ensure clean 1..N sequence
+            rows = cursor.execute('SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC', (repertoire_id,)).fetchall()
+            for i, row in enumerate(rows, start=1):
+                cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, row['id']))
         
         # Update the song itself
         cursor.execute('''
             UPDATE songs
             SET title = ?, artist = ?, song_number = ?, priority = ?, 
-                practice_target = ?, notes = ?
+                practice_target = ?, release_date = ?, notes = ?
             WHERE id = ?
         ''', (
-            data['title'],
-            data['artist'],
+            data.get('title'),
+            data.get('artist'),
             new_number,
-            data['priority'],
-            data['practice_target'],
+            data.get('priority', 'mid'),
+            data.get('practice_target', 0),
+            data.get('release_date'),
             data.get('notes', ''),
             song_id
         ))
@@ -293,17 +347,25 @@ def toggle_priority(song_id):
 
 @app.route('/api/songs/reorder', methods=['POST'])
 def reorder_songs():
-    """Reorder songs by array of song IDs in desired order; song_number becomes 1..N."""
+    """Reorder songs by array of song IDs in desired order; song_number becomes 1..N within repertoire."""
     data = request.json or {}
     ordered_ids = data.get('ordered_ids', [])
+    repertoire_id = data.get('repertoire_id')
 
     if not isinstance(ordered_ids, list) or not all(isinstance(x, int) for x in ordered_ids):
         return jsonify({'error': 'ordered_ids must be an array of integers'}), 400
 
     with get_db() as conn:
         cursor = conn.cursor()
-        # Optional: validate IDs exist
-        existing = cursor.execute('SELECT id FROM songs ORDER BY song_number ASC, id ASC').fetchall()
+        # Get existing songs in this repertoire
+        if repertoire_id:
+            existing = cursor.execute(
+                'SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC, id ASC',
+                (repertoire_id,)
+            ).fetchall()
+        else:
+            existing = cursor.execute('SELECT id FROM songs ORDER BY song_number ASC, id ASC').fetchall()
+        
         existing_ids = [row['id'] for row in existing]
 
         # If client sent subset, append remaining in current order
@@ -323,6 +385,15 @@ def reorder_songs():
 
 # ==================== MEDIA SERVING ====================
 
+def windows_path_to_wsl(win_path):
+    """Convert Windows path to WSL path"""
+    if not win_path:
+        return None
+    # Convert e:\ to /mnt/e/ and backslashes to forward slashes
+    wsl_path = win_path.replace('e:\\', '/mnt/e/').replace('E:\\', '/mnt/e/')
+    wsl_path = wsl_path.replace('\\', '/')
+    return wsl_path
+
 @app.route('/media/<int:song_id>')
 def media(song_id):
     """Serve the linked audio file for a song, if present."""
@@ -332,10 +403,14 @@ def media(song_id):
         if not row:
             abort(404)
         path = row['audio_path']
-        if not path or not os.path.isfile(path):
+        if not path:
+            abort(404)
+        # Convert Windows path to WSL if needed
+        wsl_path = windows_path_to_wsl(path)
+        if not os.path.isfile(wsl_path):
             abort(404)
         # Force download with Content-Disposition header to trigger "Open with" dialog
-        with open(path, 'rb') as f:
+        with open(wsl_path, 'rb') as f:
             data = f.read()
         response = Response(data, mimetype='audio/mpeg')
         response.headers['Content-Disposition'] = f'attachment; filename="{os.path.basename(path)}"'
@@ -350,9 +425,13 @@ def chart(song_id):
         if not row:
             abort(404)
         path = row['chart_path']
-        if not path or not os.path.isfile(path):
+        if not path:
             abort(404)
-        return send_file(path, as_attachment=False, download_name=os.path.basename(path))
+        # Convert Windows path to WSL if needed
+        wsl_path = windows_path_to_wsl(path)
+        if not os.path.isfile(wsl_path):
+            abort(404)
+        return send_file(wsl_path, as_attachment=False, download_name=os.path.basename(path))
 
 @app.route('/api/songs/<int:song_id>/audio', methods=['POST', 'DELETE'])
 def manage_audio(song_id):
@@ -467,6 +546,149 @@ def delete_skill(skill_id):
         cursor.execute('DELETE FROM skills WHERE id = ?', (skill_id,))
         
         return jsonify({'message': 'Skill deleted successfully'})
+
+# ==================== REPERTOIRES API ====================
+
+@app.route('/api/repertoires', methods=['GET'])
+def get_repertoires():
+    """Get all repertoires with their default skills"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        repertoires = cursor.execute('SELECT * FROM repertoires ORDER BY COALESCE(sort_order, id), id').fetchall()
+        repertoires_list = []
+        
+        for rep in repertoires:
+            rep_dict = dict(rep)
+            
+            # Get default skills for this repertoire
+            skills = cursor.execute('''
+                SELECT s.id, s.name
+                FROM skills s
+                INNER JOIN repertoire_skills rs ON s.id = rs.skill_id
+                WHERE rs.repertoire_id = ?
+                ORDER BY s.id
+            ''', (rep['id'],)).fetchall()
+            
+            rep_dict['default_skills'] = [dict(skill) for skill in skills]
+            
+            # Get song count
+            song_count = cursor.execute(
+                'SELECT COUNT(*) as count FROM songs WHERE repertoire_id = ?',
+                (rep['id'],)
+            ).fetchone()
+            rep_dict['song_count'] = song_count['count']
+            
+            repertoires_list.append(rep_dict)
+        
+        return jsonify(repertoires_list)
+
+@app.route('/api/repertoires', methods=['POST'])
+def create_repertoire():
+    """Create a new repertoire"""
+    data = request.json
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(
+                'INSERT INTO repertoires (name, date_created) VALUES (?, ?)',
+                (data['name'], datetime.now().isoformat())
+            )
+            repertoire_id = cursor.lastrowid
+            
+            # Add default skills if provided
+            if 'skill_ids' in data:
+                for skill_id in data['skill_ids']:
+                    cursor.execute(
+                        'INSERT INTO repertoire_skills (repertoire_id, skill_id) VALUES (?, ?)',
+                        (repertoire_id, skill_id)
+                    )
+            
+            return jsonify({'id': repertoire_id, 'message': 'Repertoire created successfully'}), 201
+        except sqlite3.IntegrityError:
+            return jsonify({'error': 'Repertoire name already exists'}), 400
+
+@app.route('/api/repertoires/<int:repertoire_id>', methods=['PUT'])
+def update_repertoire(repertoire_id):
+    """Update a repertoire's name and default skills"""
+    data = request.json
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Check if repertoire exists
+        rep = cursor.execute('SELECT id FROM repertoires WHERE id = ?', (repertoire_id,)).fetchone()
+        if not rep:
+            return jsonify({'error': 'Repertoire not found'}), 404
+        
+        # Update name
+        if 'name' in data:
+            try:
+                cursor.execute(
+                    'UPDATE repertoires SET name = ? WHERE id = ?',
+                    (data['name'], repertoire_id)
+                )
+            except sqlite3.IntegrityError:
+                return jsonify({'error': 'Repertoire name already exists'}), 400
+        
+        # Update default skills
+        if 'skill_ids' in data:
+            # Remove all current default skills
+            cursor.execute('DELETE FROM repertoire_skills WHERE repertoire_id = ?', (repertoire_id,))
+            
+            # Add new default skills
+            for skill_id in data['skill_ids']:
+                cursor.execute(
+                    'INSERT INTO repertoire_skills (repertoire_id, skill_id) VALUES (?, ?)',
+                    (repertoire_id, skill_id)
+                )
+        
+        return jsonify({'message': 'Repertoire updated successfully'})
+
+@app.route('/api/repertoires/<int:repertoire_id>', methods=['DELETE'])
+def delete_repertoire(repertoire_id):
+    """Delete a repertoire and cascade delete all songs in it"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Get song count for confirmation message (already shown on frontend)
+        song_count = cursor.execute(
+            'SELECT COUNT(*) as count FROM songs WHERE repertoire_id = ?',
+            (repertoire_id,)
+        ).fetchone()
+        
+        # Delete all songs in this repertoire first (cascade)
+        cursor.execute('DELETE FROM songs WHERE repertoire_id = ?', (repertoire_id,))
+        
+        # Delete the repertoire itself
+        cursor.execute('DELETE FROM repertoires WHERE id = ?', (repertoire_id,))
+        
+        return jsonify({
+            'message': 'Repertoire deleted successfully',
+            'songs_deleted': song_count['count']
+        })
+
+@app.route('/api/repertoires/reorder', methods=['POST'])
+def reorder_repertoires():
+    """Persist a new ordering of repertoires given an array of repertoire IDs."""
+    data = request.json or {}
+    order = data.get('order')
+    if not isinstance(order, list) or not all(isinstance(i, int) for i in order):
+        return jsonify({'error': 'Invalid order payload'}), 400
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # Validate all IDs exist
+        existing_ids = {row['id'] for row in cursor.execute('SELECT id FROM repertoires').fetchall()}
+        if set(order) - existing_ids:
+            return jsonify({'error': 'Unknown repertoire id(s) in order'}), 400
+
+        for position, rep_id in enumerate(order, start=1):
+            cursor.execute('UPDATE repertoires SET sort_order = ? WHERE id = ?', (position, rep_id))
+
+    return jsonify({'message': 'Repertoires reordered successfully'})
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', '5000'))

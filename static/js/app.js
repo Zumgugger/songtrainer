@@ -5,7 +5,10 @@ function editSongById(songId) {
 }
 let songs = [];
 let skills = [];
+let repertoires = [];
+let currentRepertoireId = null;
 let currentSort = 'song_number';
+let sortReverse = false;
 let searchQuery = '';
 let currentAttachSongId = null;
 let currentAttachChartId = null;
@@ -14,7 +17,7 @@ let currentAttachChartId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadSkills();
-    loadSongs();
+    loadRepertoires();
     
     // Modal controls
     const modal = document.getElementById('songModal');
@@ -30,17 +33,54 @@ document.addEventListener('DOMContentLoaded', () => {
         if (event.target == modal) {
             closeModal();
         }
+        if (event.target == repertoireModal) {
+            closeRepertoireModal();
+        }
     };
+
+    // Enable draggable behavior for song modal
+    enableSongModalDrag();
+    
+    // Repertoire modal controls
+    const repertoireModal = document.getElementById('repertoireModal');
+    const addRepertoireBtn = document.getElementById('addRepertoireBtn');
+    const closeRepertoireBtn = document.getElementById('closeRepertoireModal');
+    const cancelRepertoireBtn = document.getElementById('cancelRepertoireBtn');
+    
+    addRepertoireBtn.onclick = () => openRepertoireModal();
+    closeRepertoireBtn.onclick = () => closeRepertoireModal();
+    cancelRepertoireBtn.onclick = () => closeRepertoireModal();
     
     // Form submission
     document.getElementById('songForm').addEventListener('submit', handleSongSubmit);
+    document.getElementById('repertoireForm').addEventListener('submit', handleRepertoireSubmit);
     
     // Sort buttons
     document.querySelectorAll('.sort-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
+            const newSort = e.target.dataset.sort;
+            
+            // Toggle reverse if clicking same button
+            if (currentSort === newSort) {
+                sortReverse = !sortReverse;
+            } else {
+                sortReverse = false;
+                currentSort = newSort;
+            }
+            
             document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
             e.target.classList.add('active');
-            currentSort = e.target.dataset.sort;
+            
+            // Add arrow indicator for reverse
+            document.querySelectorAll('.sort-btn').forEach(b => {
+                b.textContent = b.textContent.replace(' ↑', '').replace(' ↓', '');
+            });
+            if (sortReverse) {
+                e.target.textContent += ' ↓';
+            } else {
+                e.target.textContent += ' ↑';
+            }
+            
             renderSongs();
         });
     });
@@ -112,14 +152,35 @@ async function loadSkills() {
         const response = await fetch('/api/skills');
         skills = await response.json();
         populateSkillsCheckboxes();
+        populateRepertoireSkillsCheckboxes();
     } catch (error) {
         console.error('Error loading skills:', error);
     }
 }
 
+async function loadRepertoires() {
+    try {
+        const response = await fetch('/api/repertoires');
+        repertoires = await response.json();
+        renderRepertoireTabs();
+        
+        // Select first repertoire by default
+        if (repertoires.length > 0 && !currentRepertoireId) {
+            currentRepertoireId = repertoires[0].id;
+        }
+        
+        loadSongs();
+    } catch (error) {
+        console.error('Error loading repertoires:', error);
+    }
+}
+
 async function loadSongs() {
     try {
-        const response = await fetch('/api/songs');
+        const url = currentRepertoireId 
+            ? `/api/songs?repertoire_id=${currentRepertoireId}`
+            : '/api/songs';
+        const response = await fetch(url);
         songs = await response.json();
         renderSongs();
         updateOverallProgress();
@@ -205,7 +266,10 @@ async function reorderSongsOnServer(orderedIds) {
         const response = await fetch('/api/songs/reorder', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ordered_ids: orderedIds })
+            body: JSON.stringify({ 
+                ordered_ids: orderedIds,
+                repertoire_id: currentRepertoireId
+            })
         });
         if (response.ok) {
             // Reload list to reflect canonical numbering 1..N
@@ -233,17 +297,24 @@ function renderSongs() {
 
     // Sort songs
     const sortedSongs = [...filtered].sort((a, b) => {
+        let comparison = 0;
+        
         if (currentSort === 'song_number') {
-            return a.song_number - b.song_number;
+            comparison = a.song_number - b.song_number;
         } else if (currentSort === 'priority') {
             const priorityOrder = { high: 0, mid: 1, low: 2 };
-            return priorityOrder[a.priority] - priorityOrder[b.priority];
+            comparison = priorityOrder[a.priority] - priorityOrder[b.priority];
         } else if (currentSort === 'last_practiced') {
-            if (!a.last_practiced) return 1;
-            if (!b.last_practiced) return -1;
-            return new Date(a.last_practiced) - new Date(b.last_practiced);
+            if (!a.last_practiced) return sortReverse ? -1 : 1;
+            if (!b.last_practiced) return sortReverse ? 1 : -1;
+            comparison = new Date(a.last_practiced) - new Date(b.last_practiced);
+        } else if (currentSort === 'release_date') {
+            if (!a.release_date) return sortReverse ? -1 : 1;
+            if (!b.release_date) return sortReverse ? 1 : -1;
+            comparison = a.release_date.localeCompare(b.release_date);
         }
-        return 0;
+        
+        return sortReverse ? -comparison : comparison;
     });
     
     songsList.innerHTML = sortedSongs.map(song => createSongCard(song)).join('');
@@ -361,6 +432,7 @@ function createSongCard(song) {
                         <span class="drag-handle" title="Drag to reorder">⠿</span>
                     </div>
                     <p class="song-artist">${song.artist}</p>
+                    ${song.release_date ? `<p class="song-release-date">📅 ${song.release_date}</p>` : ''}
                     <p class="last-practiced ${lastPracticedClass}">${lastPracticed}</p>
                 </div>
                 <div class="song-actions">
@@ -504,7 +576,12 @@ function updateOverallProgress() {
     let totalSkills = 0;
     let masteredSkills = 0;
     
-    songs.forEach(song => {
+    // Only count skills from songs in the current repertoire
+    const repertoireSongs = currentRepertoireId 
+        ? songs.filter(s => s.repertoire_id === currentRepertoireId)
+        : songs;
+    
+    repertoireSongs.forEach(song => {
         const assignedSkills = song.skills.filter(s => s.is_mastered !== null);
         totalSkills += assignedSkills.length;
         masteredSkills += assignedSkills.filter(s => s.is_mastered === 1).length;
@@ -519,7 +596,13 @@ function updateOverallProgress() {
         progressBar.style.width = percentage + '%';
         progressBar.textContent = percentage + '%';
         progressBar.className = 'progress-bar' + (percentage >= 100 ? ' complete' : '');
-        progressText.textContent = `${masteredSkills} / ${totalSkills} skills mastered`;
+        
+        // Show repertoire name in progress text
+        const currentRep = currentRepertoireId 
+            ? repertoires.find(r => r.id === currentRepertoireId)
+            : null;
+        const repName = currentRep ? ` (${currentRep.name})` : '';
+        progressText.textContent = `${masteredSkills} / ${totalSkills} skills mastered${repName}`;
     }
 }
 
@@ -529,6 +612,7 @@ function openModal(song = null) {
     const modal = document.getElementById('songModal');
     const form = document.getElementById('songForm');
     const title = document.getElementById('modalTitle');
+    const modalContent = modal.querySelector('.modal-content');
     
     form.reset();
     
@@ -540,6 +624,7 @@ function openModal(song = null) {
         document.getElementById('songNumber').value = song.song_number;
         document.getElementById('priority').value = song.priority;
         document.getElementById('practiceTarget').value = song.practice_target;
+        document.getElementById('releaseDate').value = song.release_date || '';
         document.getElementById('notes').value = song.notes || '';
         
         // Check the skills that are assigned to this song
@@ -557,22 +642,38 @@ function openModal(song = null) {
         title.textContent = 'Add Song';
         document.getElementById('songId').value = '';
         
-        // Get next song number
+        // Get next song number for current repertoire
         const maxSongNumber = songs.length > 0 
             ? Math.max(...songs.map(s => s.song_number)) 
             : 0;
         document.getElementById('songNumber').value = maxSongNumber + 1;
         
-        // Check all skills by default for new songs
-        skills.forEach(skill => {
-            const checkbox = document.getElementById(`skill-${skill.id}`);
-            if (checkbox) {
-                checkbox.checked = true;
+        // Check default skills for current repertoire
+        if (currentRepertoireId) {
+            const currentRep = repertoires.find(r => r.id === currentRepertoireId);
+            if (currentRep) {
+                const defaultSkillIds = currentRep.default_skills.map(s => s.id);
+                skills.forEach(skill => {
+                    const checkbox = document.getElementById(`skill-${skill.id}`);
+                    if (checkbox) {
+                        checkbox.checked = defaultSkillIds.includes(skill.id);
+                    }
+                });
             }
-        });
+        } else {
+            // Check all skills by default if no repertoire selected
+            skills.forEach(skill => {
+                const checkbox = document.getElementById(`skill-${skill.id}`);
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+            });
+        }
     }
     
     modal.style.display = 'block';
+    // Ensure draggable styling active
+    modalContent.classList.add('draggable-modal');
 }
 
 function closeModal() {
@@ -597,8 +698,10 @@ async function handleSongSubmit(e) {
         title: document.getElementById('title').value,
         artist: document.getElementById('artist').value,
         song_number: parseInt(document.getElementById('songNumber').value),
+        repertoire_id: currentRepertoireId,
         priority: document.getElementById('priority').value,
         practice_target: parseInt(document.getElementById('practiceTarget').value),
+        release_date: document.getElementById('releaseDate').value || null,
         notes: document.getElementById('notes').value,
         skill_ids: selectedSkillIds
     };
@@ -616,6 +719,7 @@ async function handleSongSubmit(e) {
         if (response.ok) {
             closeModal();
             loadSongs();
+            loadRepertoires(); // Refresh song counts
         } else {
             alert('Error saving song');
         }
@@ -639,6 +743,264 @@ function populateSkillsCheckboxes() {
             ${skill.name}
         </label>
     `).join('');
+}
+
+function populateRepertoireSkillsCheckboxes() {
+    const container = document.getElementById('repertoireSkillsCheckboxes');
+    
+    if (skills.length === 0) {
+        container.innerHTML = '<p style="color: #7f8c8d;">No skills available.</p>';
+        return;
+    }
+    
+    container.innerHTML = skills.map(skill => `
+        <label>
+            <input type="checkbox" id="rep-skill-${skill.id}" value="${skill.id}">
+            ${skill.name}
+        </label>
+    `).join('');
+}
+
+// ==================== DRAGGABLE MODAL ====================
+function enableSongModalDrag() {
+    const modalContent = document.querySelector('#songModal .modal-content');
+    const handle = modalContent ? modalContent.querySelector('.modal-drag-handle') : null;
+    if (!modalContent || !handle) return;
+    let dragging = false;
+    let startX = 0, startY = 0, origLeft = 0, origTop = 0;
+
+    function onMouseMove(e) {
+        if (!dragging) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        modalContent.style.left = (origLeft + dx) + 'px';
+        modalContent.style.top = (origTop + dy) + 'px';
+    }
+
+    function onMouseUp() {
+        if (!dragging) return;
+        dragging = false;
+        modalContent.classList.remove('modal-moving');
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+    }
+
+    handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        dragging = true;
+        const rect = modalContent.getBoundingClientRect();
+        startX = e.clientX;
+        startY = e.clientY;
+        origLeft = rect.left;
+        origTop = rect.top;
+        // Activate draggable style if not present
+        modalContent.classList.add('draggable-modal');
+        modalContent.classList.add('modal-moving');
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+}
+
+// ==================== REPERTOIRE FUNCTIONS ====================
+
+function renderRepertoireTabs() {
+    const tabsContainer = document.getElementById('repertoireTabs');
+    
+    if (repertoires.length === 0) {
+        tabsContainer.innerHTML = '<p style="color: #7f8c8d;">No repertoires. Click "+ Repertoire" to create one.</p>';
+        return;
+    }
+    
+    tabsContainer.innerHTML = repertoires.map(rep => `
+        <div class="tab ${rep.id === currentRepertoireId ? 'active' : ''}" 
+             data-repid="${rep.id}" draggable="true">
+            <span class="tab-name" onclick="switchRepertoire(${rep.id})">${rep.name}</span>
+            <span class="tab-count" onclick="switchRepertoire(${rep.id})">${rep.song_count}</span>
+            <button class="tab-edit-btn" onclick="event.stopPropagation(); editRepertoire(${rep.id})" title="Edit repertoire">✏️</button>
+            <span class="drag-hint" style="cursor:grab; font-size:10px; color:#7f8c8d;">⇅</span>
+        </div>
+    `).join('');
+
+    setupRepertoireDragAndDrop();
+}
+
+let draggedRepId = null;
+
+function setupRepertoireDragAndDrop() {
+    const tabsContainer = document.getElementById('repertoireTabs');
+    const tabs = tabsContainer.querySelectorAll('.tab');
+    tabs.forEach(tab => {
+        tab.addEventListener('dragstart', (e) => {
+            draggedRepId = parseInt(tab.dataset.repid);
+            e.dataTransfer.setData('text/plain', String(draggedRepId));
+        });
+        tab.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        tab.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const targetId = parseInt(tab.dataset.repid);
+            const fromId = parseInt(e.dataTransfer.getData('text/plain'));
+            if (fromId === targetId) return;
+            const fromIndex = repertoires.findIndex(r => r.id === fromId);
+            const toIndex = repertoires.findIndex(r => r.id === targetId);
+            if (fromIndex === -1 || toIndex === -1) return;
+            const [moved] = repertoires.splice(fromIndex, 1);
+            repertoires.splice(toIndex, 0, moved);
+            persistRepertoireOrder();
+        });
+    });
+}
+
+async function persistRepertoireOrder() {
+    renderRepertoireTabs(); // optimistic UI
+    try {
+        await fetch('/api/repertoires/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: repertoires.map(r => r.id) })
+        });
+    } catch (err) {
+        console.error('Failed to persist repertoire order', err);
+        // reload from server to recover
+        loadRepertoires();
+    }
+}
+
+function switchRepertoire(repertoireId) {
+    currentRepertoireId = repertoireId;
+    renderRepertoireTabs();
+    loadSongs();
+}
+
+function openRepertoireModal(repertoire = null) {
+    const modal = document.getElementById('repertoireModal');
+    const form = document.getElementById('repertoireForm');
+    const title = document.getElementById('repertoireModalTitle');
+    const deleteBtn = document.getElementById('deleteRepertoireBtn');
+    
+    form.reset();
+    
+    if (repertoire) {
+        title.textContent = 'Edit Repertoire';
+        document.getElementById('repertoireId').value = repertoire.id;
+        document.getElementById('repertoireName').value = repertoire.name;
+        
+        // Check the default skills for this repertoire
+        const defaultSkillIds = repertoire.default_skills.map(s => s.id);
+        skills.forEach(skill => {
+            const checkbox = document.getElementById(`rep-skill-${skill.id}`);
+            if (checkbox) {
+                checkbox.checked = defaultSkillIds.includes(skill.id);
+            }
+        });
+        
+        // Show delete button for existing repertoires
+        if (deleteBtn) {
+            deleteBtn.style.display = 'inline-block';
+            deleteBtn.onclick = deleteRepertoire;
+        }
+    } else {
+        title.textContent = 'Add Repertoire';
+        document.getElementById('repertoireId').value = '';
+        
+        // Check all skills by default for new repertoires
+        skills.forEach(skill => {
+            const checkbox = document.getElementById(`rep-skill-${skill.id}`);
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+        });
+        
+        // Hide delete button for new repertoires
+        if (deleteBtn) {
+            deleteBtn.style.display = 'none';
+        }
+    }
+    
+    modal.style.display = 'block';
+}
+
+function closeRepertoireModal() {
+    document.getElementById('repertoireModal').style.display = 'none';
+}
+
+async function editRepertoire(repertoireId) {
+    const repertoire = repertoires.find(r => r.id === repertoireId);
+    if (repertoire) {
+        openRepertoireModal(repertoire);
+    }
+}
+
+async function handleRepertoireSubmit(e) {
+    e.preventDefault();
+    
+    const repertoireId = document.getElementById('repertoireId').value;
+    const isEdit = repertoireId !== '';
+    
+    const selectedSkillIds = skills
+        .filter(skill => document.getElementById(`rep-skill-${skill.id}`).checked)
+        .map(skill => skill.id);
+    
+    const data = {
+        name: document.getElementById('repertoireName').value,
+        skill_ids: selectedSkillIds
+    };
+    
+    try {
+        const url = isEdit ? `/api/repertoires/${repertoireId}` : '/api/repertoires';
+        const method = isEdit ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            closeRepertoireModal();
+            loadRepertoires();
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Error saving repertoire');
+        }
+    } catch (error) {
+        console.error('Error saving repertoire:', error);
+        alert('Error saving repertoire');
+    }
+}
+
+async function deleteRepertoire() {
+    const repertoireId = document.getElementById('repertoireId').value;
+    if (!repertoireId) return;
+    
+    const repertoire = repertoires.find(r => r.id === parseInt(repertoireId));
+    if (!repertoire) return;
+    
+    const confirmMsg = `Delete repertoire "${repertoire.name}"?\n\nThis will also delete all ${repertoire.song_count} song(s) in this repertoire.\n\nThis cannot be undone.`;
+    
+    if (!confirm(confirmMsg)) return;
+    
+    try {
+        const response = await fetch(`/api/repertoires/${repertoireId}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            closeRepertoireModal();
+            // If we deleted the current repertoire, switch to first available
+            if (currentRepertoireId === parseInt(repertoireId)) {
+                currentRepertoireId = null;
+            }
+            loadRepertoires();
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Error deleting repertoire');
+        }
+    } catch (error) {
+        console.error('Error deleting repertoire:', error);
+        alert('Error deleting repertoire');
+    }
 }
 
 // ==================== UTILITIES ====================

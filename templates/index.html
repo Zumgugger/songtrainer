@@ -16,6 +16,14 @@
             </div>
         </header>
 
+        <!-- Repertoire Tabs -->
+        <div class="repertoire-tabs">
+            <div id="repertoireTabs" class="tabs">
+                <!-- Will be populated dynamically -->
+            </div>
+            <button id="addRepertoireBtn" class="btn btn-small" title="Add new repertoire">+ Repertoire</button>
+        </div>
+
         <div class="overall-progress">
             <h3>Overall Progress</h3>
             <div class="progress-bar-container">
@@ -30,6 +38,7 @@
                 <button class="sort-btn active" data-sort="song_number">Song Order</button>
                 <button class="sort-btn" data-sort="priority">Priority</button>
                 <button class="sort-btn" data-sort="last_practiced">Last Practiced</button>
+                <button class="sort-btn" data-sort="release_date">Release Date</button>
             </div>
             <div class="search-controls">
                 <input type="text" id="searchInput" placeholder="Search song title..." />
@@ -45,6 +54,7 @@
     <div id="songModal" class="modal">
         <div class="modal-content">
             <span class="close">&times;</span>
+            <div class="modal-drag-handle" title="Drag window">⬍ Drag</div>
             <h2 id="modalTitle">Add Song</h2>
             <form id="songForm">
                 <input type="hidden" id="songId">
@@ -81,6 +91,11 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="releaseDate">Release Date (optional)</label>
+                    <input type="text" id="releaseDate" placeholder="e.g., 1977, 1990-05, 2019-12-25">
+                </div>
+
+                <div class="form-group">
                     <label>Skills to track:</label>
                     <div id="skillsCheckboxes" class="skills-checkboxes">
                         <!-- Will be populated dynamically -->
@@ -95,6 +110,35 @@
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save</button>
                     <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Repertoire Modal -->
+    <div id="repertoireModal" class="modal">
+        <div class="modal-content">
+            <span class="close" id="closeRepertoireModal">&times;</span>
+            <h2 id="repertoireModalTitle">Add Repertoire</h2>
+            <form id="repertoireForm">
+                <input type="hidden" id="repertoireId">
+                
+                <div class="form-group">
+                    <label for="repertoireName">Repertoire Name *</label>
+                    <input type="text" id="repertoireName" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Default Skills for this repertoire:</label>
+                    <div id="repertoireSkillsCheckboxes" class="skills-checkboxes">
+                        <!-- Will be populated dynamically -->
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" id="cancelRepertoireBtn">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="deleteRepertoireBtn" style="margin-left: auto;">Delete Repertoire</button>
                 </div>
             </form>
         </div>
