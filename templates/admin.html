@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Manage Skills</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚙️ Manage Skills</h1>
+            <div class="header-actions">
+                <a href="/" class="btn btn-secondary">← Back to Songs</a>
+            </div>
+        </header>
+
+        <div class="admin-content">
+            <div class="admin-section">
+                <h2>Add New Skill</h2>
+                <form id="addSkillForm" class="inline-form">
+                    <input type="text" id="newSkillName" placeholder="Skill name" required>
+                    <button type="submit" class="btn btn-primary">Add Skill</button>
+                </form>
+            </div>
+
+            <div class="admin-section">
+                <h2>Current Skills</h2>
+                <div id="skillsList" class="skills-list">
+                    <!-- Skills will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let skills = [];
+
+        // Load skills
+        async function loadSkills() {
+            try {
+                const response = await fetch('/api/skills');
+                skills = await response.json();
+                renderSkills();
+            } catch (error) {
+                console.error('Error loading skills:', error);
+            }
+        }
+
+        // Render skills list
+        function renderSkills() {
+            const skillsList = document.getElementById('skillsList');
+            
+            if (skills.length === 0) {
+                skillsList.innerHTML = '<p class="empty-state">No skills yet. Add your first skill above!</p>';
+                return;
+            }
+
+            skillsList.innerHTML = skills.map(skill => `
+                <div class="skill-item">
+                    <div class="skill-info">
+                        <span class="skill-name" data-id="${skill.id}">${skill.name}</span>
+                    </div>
+                    <div class="skill-actions">
+                        <button class="btn-icon" onclick="editSkill(${skill.id}, '${skill.name.replace(/'/g, "\\'")}')">✏️</button>
+                        <button class="btn-icon" onclick="deleteSkill(${skill.id}, '${skill.name.replace(/'/g, "\\'")}')">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Add skill
+        document.getElementById('addSkillForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('newSkillName').value.trim();
+
+            if (!name) return;
+
+            try {
+                const response = await fetch('/api/skills', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+
+                if (response.ok) {
+                    document.getElementById('newSkillName').value = '';
+                    loadSkills();
+                } else {
+                    const error = await response.json();
+                    alert(error.error || 'Error adding skill');
+                }
+            } catch (error) {
+                console.error('Error adding skill:', error);
+                alert('Error adding skill');
+            }
+        });
+
+        // Edit skill
+        async function editSkill(id, currentName) {
+            const newName = prompt('Edit skill name:', currentName);
+            
+            if (!newName || newName === currentName) return;
+
+            try {
+                const response = await fetch(`/api/skills/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+
+                if (response.ok) {
+                    loadSkills();
+                } else {
+                    const error = await response.json();
+                    alert(error.error || 'Error updating skill');
+                }
+            } catch (error) {
+                console.error('Error updating skill:', error);
+                alert('Error updating skill');
+            }
+        }
+
+        // Delete skill
+        async function deleteSkill(id, name) {
+            if (!confirm(`Delete skill "${name}"? This will remove it from all songs.`)) return;
+
+            try {
+                const response = await fetch(`/api/skills/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    loadSkills();
+                } else {
+                    alert('Error deleting skill');
+                }
+            } catch (error) {
+                console.error('Error deleting skill:', error);
+                alert('Error deleting skill');
+            }
+        }
+
+        // Initialize
+        loadSkills();
+    </script>
+</body>
+</html>

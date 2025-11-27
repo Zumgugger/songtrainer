@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Song Trainer - Practice Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 Song Trainer</h1>
+            <div class="header-actions">
+                <button id="addSongBtn" class="btn btn-primary">+ Add Song</button>
+                <a href="/admin" class="btn btn-secondary">⚙️ Manage Skills</a>
+            </div>
+        </header>
+
+        <div class="overall-progress">
+            <h3>Overall Progress</h3>
+            <div class="progress-bar-container">
+                <div id="overallProgressBar" class="progress-bar">0%</div>
+            </div>
+            <p id="overallProgressText">0 / 0 skills mastered</p>
+        </div>
+
+        <div class="controls">
+            <div class="sort-controls">
+                <label>Sort by:</label>
+                <button class="sort-btn active" data-sort="song_number">Song Order</button>
+                <button class="sort-btn" data-sort="priority">Priority</button>
+                <button class="sort-btn" data-sort="last_practiced">Last Practiced</button>
+            </div>
+            <div class="search-controls">
+                <input type="text" id="searchInput" placeholder="Search song title..." />
+            </div>
+        </div>
+
+        <div id="songsList" class="songs-list">
+            <!-- Songs will be loaded here -->
+        </div>
+    </div>
+
+    <!-- Add/Edit Song Modal -->
+    <div id="songModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="modalTitle">Add Song</h2>
+            <form id="songForm">
+                <input type="hidden" id="songId">
+                
+                <div class="form-group">
+                    <label for="title">Title *</label>
+                    <input type="text" id="title" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="artist">Artist *</label>
+                    <input type="text" id="artist" required>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="songNumber">Song Order *</label>
+                        <input type="number" id="songNumber" min="1" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="priority">Priority *</label>
+                        <select id="priority" required>
+                            <option value="low">Low</option>
+                            <option value="mid" selected>Mid</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="practiceTarget">Practice Target</label>
+                        <input type="number" id="practiceTarget" min="0" value="0">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Skills to track:</label>
+                    <div id="skillsCheckboxes" class="skills-checkboxes">
+                        <!-- Will be populated dynamically -->
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="notes">Notes</label>
+                    <textarea id="notes" rows="3"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <!-- Hidden file input for attaching audio -->
+    <input type="file" id="audioFileInput" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg" style="display:none" />
+    <!-- Hidden file input for attaching charts -->
+    <input type="file" id="chartFileInput" accept=".pdf,.png,.jpg,.jpeg,.gif,.txt,.doc,.docx" style="display:none" />
+</body>
+</html>
