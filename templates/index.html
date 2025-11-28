@@ -61,7 +61,10 @@
                 
                 <div class="form-group">
                     <label for="title">Title *</label>
-                    <input type="text" id="title" required>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="title" required style="flex: 1;">
+                        <button type="button" class="btn btn-secondary" onclick="lookupSongMetadata()" title="Auto-fill artist and release date">🔍 Lookup</button>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -107,6 +110,17 @@
                     <textarea id="notes" rows="3"></textarea>
                 </div>
 
+                <div class="form-group">
+                    <label for="performanceHints">Performance Hints</label>
+                    <div style="display: flex; gap: 10px; margin-bottom: 5px;">
+                        <button type="button" class="btn btn-secondary" onclick="insertBoldText()" title="Add bold text">
+                            <strong>B</strong>
+                        </button>
+                    </div>
+                    <textarea id="performanceHints" rows="2" placeholder="Use **text** for bold formatting"></textarea>
+                    <small style="color: var(--text-muted);">Format: Use **text** for bold. Example: Intro **2x**, Chorus **loud**</small>
+                </div>
+
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save</button>
                     <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
@@ -135,9 +149,35 @@
                     </div>
                 </div>
 
+                <div class="form-group">
+                    <label for="mp3Folder">MP3 Folder (required for sync)</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="text" id="mp3Folder" placeholder="e.g., E:\Drive\Music Sync\Projekte\Jutzi Trio\mp3 originals" style="flex: 1;">
+                        <button type="button" class="btn btn-secondary" onclick="document.getElementById('mp3FilePicker').click()">📁 Browse</button>
+                    </div>
+                    <small style="color: var(--text-muted);">Type or paste Windows path (E:\...). Click Browse to select a file and extract folder path. Auto-converts to WSL.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="sheetFolder">Sheet Music Folder (optional)</label>
+                    <input type="text" id="sheetFolder" placeholder="e.g., E:\Drive\Music Sync\Projekte\Jutzi Trio\Song Charts">
+                    <small style="color: var(--text-muted);">Type or paste Windows path. Copy from MP3 folder above if same location. Auto-converts to WSL.</small>
+                </div>
+
+                <div class="form-group" id="setlistSection" style="display:none;">
+                    <label>Generate Setlist PDF</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <label for="maxSongNumber" style="margin: 0;">Songs 1 to:</label>
+                        <input type="number" id="maxSongNumber" min="1" placeholder="All" style="width: 100px;">
+                        <button type="button" class="btn btn-success" onclick="generateSetlistPDF()">📄 Generate PDF</button>
+                    </div>
+                    <small style="color: var(--text-muted);">Leave empty to include all songs, or enter a number to include songs 1 to N.</small>
+                </div>
+
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save</button>
                     <button type="button" class="btn btn-secondary" id="cancelRepertoireBtn">Cancel</button>
+                    <button type="button" class="btn btn-success" id="syncRepertoireBtn" style="display:none;">🔄 Sync Folders</button>
                     <button type="button" class="btn btn-danger" id="deleteRepertoireBtn" style="margin-left: auto;">Delete Repertoire</button>
                 </div>
             </form>
@@ -149,5 +189,11 @@
     <input type="file" id="audioFileInput" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg" style="display:none" />
     <!-- Hidden file input for attaching charts -->
     <input type="file" id="chartFileInput" accept=".pdf,.png,.jpg,.jpeg,.gif,.txt,.doc,.docx" style="display:none" />
+    <!-- Hidden file pickers for extracting folder paths -->
+    <input type="file" id="mp3FilePicker" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg" style="display:none" />
+    <!-- Hidden directory inputs for repertoire folder selection (legacy, not used) -->
+    <input type="file" id="songlistFolderInput" webkitdirectory directory multiple style="display:none" />
+    <input type="file" id="mp3FolderInput" webkitdirectory directory multiple style="display:none" />
+    <input type="file" id="sheetFolderInput" webkitdirectory directory multiple style="display:none" />
 </body>
 </html>

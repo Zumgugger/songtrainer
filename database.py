@@ -241,10 +241,42 @@ def ensure_indexes_and_normalize():
 
         print("Indexes ensured and song numbers normalized per repertoire.")
 
+def ensure_repertoire_folder_columns():
+    """Ensure repertoires table has folder path columns for songlist, mp3, and sheet."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(repertoires)').fetchall()
+        colnames = {c['name'] for c in cols}
+        
+        columns_to_add = [
+            ('songlist_folder', 'TEXT'),
+            ('mp3_folder', 'TEXT'),
+            ('sheet_folder', 'TEXT')
+        ]
+        
+        for col_name, col_type in columns_to_add:
+            if col_name not in colnames:
+                cursor.execute(f'ALTER TABLE repertoires ADD COLUMN {col_name} {col_type}')
+                print(f'Added {col_name} column to repertoires table')
+
+def ensure_performance_hints_column():
+    """Ensure songs table has performance_hints column."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(songs)').fetchall()
+        colnames = {c['name'] for c in cols}
+        
+        if 'performance_hints' not in colnames:
+            cursor.execute('ALTER TABLE songs ADD COLUMN performance_hints TEXT')
+            print('Added performance_hints column to songs table')
+
 if __name__ == '__main__':
     init_db()
     ensure_audio_path_column()
     ensure_chart_path_column()
     ensure_repertoire_id_column()
     ensure_release_date_column()
+    ensure_repertoire_sort_order_column()
     ensure_indexes_and_normalize()
+    ensure_repertoire_folder_columns()
+    ensure_performance_hints_column()

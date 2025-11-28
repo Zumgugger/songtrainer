@@ -143,7 +143,75 @@ document.addEventListener('DOMContentLoaded', () => {
             currentAttachChartId = null;
         }
     });
+
+    // Single file pickers to extract folder paths
+    const mp3FilePicker = document.getElementById('mp3FilePicker');
+    if (mp3FilePicker) {
+        mp3FilePicker.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                // Try to get full path from file.path property (Electron/VS Code)
+                if (file.path) {
+                    const fullPath = file.path;
+                    const dirPath = fullPath.substring(0, fullPath.lastIndexOf('/')) || fullPath.substring(0, fullPath.lastIndexOf('\\'));
+                    const convertedPath = convertWindowsToWSLPath(dirPath);
+                    document.getElementById('mp3Folder').value = convertedPath;
+                    console.log(`MP3 folder extracted: ${dirPath} → ${convertedPath}`);
+                    
+                    // Auto-save if editing existing repertoire
+                    const repertoireId = document.getElementById('repertoireId')?.value;
+                    if (repertoireId) {
+                        await saveRepertoireFolderPath('mp3_folder', convertedPath);
+                    }
+                } else {
+                    alert('Cannot extract full path from browser file picker. Please type the full path manually (e.g., E:\\Music\\MP3s)');
+                }
+            }
+            e.target.value = ''; // Reset
+        });
+    }
+
+    // Auto-convert Windows paths when user manually types them
+    const folderInputs = [
+        { input: document.getElementById('mp3Folder'), field: 'mp3_folder' },
+        { input: document.getElementById('sheetFolder'), field: 'sheet_folder' }
+    ];
+    
+    folderInputs.forEach(({ input, field }) => {
+        if (input) {
+            input.addEventListener('blur', async (e) => {
+                const currentValue = e.target.value.trim();
+                if (!currentValue) return;
+                
+                const converted = convertWindowsToWSLPath(currentValue);
+                if (converted !== currentValue) {
+                    e.target.value = converted;
+                    console.log(`Auto-converted: ${currentValue} → ${converted}`);
+                }
+                
+                // Auto-save if repertoire is open for editing
+                const repertoireId = document.getElementById('repertoireId')?.value;
+                if (repertoireId) {
+                    await saveRepertoireFolderPath(field, converted);
+                }
+            });
+        }
+    });
 });
+
+// ==================== HELPER FUNCTIONS ====================
+
+function convertWindowsToWSLPath(path) {
+    if (!path) return path;
+    // Convert Windows path (e.g., "E:\Music\Songs") to WSL path ("/mnt/e/Music/Songs")
+    const driveMatch = path.match(/^([A-Z]):\\/i);
+    if (driveMatch) {
+        const driveLetter = driveMatch[1].toLowerCase();
+        const restOfPath = path.substring(3).replace(/\\/g, '/');
+        return `/mnt/${driveLetter}/${restOfPath}`;
+    }
+    return path;
+}
 
 // ==================== API CALLS ====================
 
@@ -427,7 +495,7 @@ function createSongCard(song) {
                 <div class="song-info">
                     <div class="song-title-row">
                         <div class="song-number" title="Order">${song.song_number}</div>
-                        <h3 class="song-title">${song.title}</h3>
+                        <h3 class="song-title">${song.title}${song.performance_hints ? ' ' + formatPerformanceHints(song.performance_hints) : ''}</h3>
                         <span class="priority-badge" title="Click to change priority (${song.priority})" onclick="togglePriority(${song.id})">${priorityIcons[song.priority]}</span>
                         <span class="drag-handle" title="Drag to reorder">⠿</span>
                     </div>
@@ -626,6 +694,7 @@ function openModal(song = null) {
         document.getElementById('practiceTarget').value = song.practice_target;
         document.getElementById('releaseDate').value = song.release_date || '';
         document.getElementById('notes').value = song.notes || '';
+        document.getElementById('performanceHints').value = song.performance_hints || '';
         
         // Check the skills that are assigned to this song
         const assignedSkillIds = song.skills
@@ -703,6 +772,7 @@ async function handleSongSubmit(e) {
         practice_target: parseInt(document.getElementById('practiceTarget').value),
         release_date: document.getElementById('releaseDate').value || null,
         notes: document.getElementById('notes').value,
+        performance_hints: document.getElementById('performanceHints').value,
         skill_ids: selectedSkillIds
     };
     
@@ -878,6 +948,7 @@ function openRepertoireModal(repertoire = null) {
     const form = document.getElementById('repertoireForm');
     const title = document.getElementById('repertoireModalTitle');
     const deleteBtn = document.getElementById('deleteRepertoireBtn');
+    const syncBtn = document.getElementById('syncRepertoireBtn');
     
     form.reset();
     
@@ -885,6 +956,8 @@ function openRepertoireModal(repertoire = null) {
         title.textContent = 'Edit Repertoire';
         document.getElementById('repertoireId').value = repertoire.id;
         document.getElementById('repertoireName').value = repertoire.name;
+        document.getElementById('mp3Folder').value = repertoire.mp3_folder || '';
+        document.getElementById('sheetFolder').value = repertoire.sheet_folder || '';
         
         // Check the default skills for this repertoire
         const defaultSkillIds = repertoire.default_skills.map(s => s.id);
@@ -900,6 +973,18 @@ function openRepertoireModal(repertoire = null) {
             deleteBtn.style.display = 'inline-block';
             deleteBtn.onclick = deleteRepertoire;
         }
+        
+        // Show sync button for existing repertoires
+        if (syncBtn) {
+            syncBtn.style.display = 'inline-block';
+            syncBtn.onclick = () => syncRepertoireFolders(repertoire.id);
+        }
+        
+        // Show setlist PDF section for existing repertoires
+        const setlistSection = document.getElementById('setlistSection');
+        if (setlistSection) {
+            setlistSection.style.display = 'block';
+        }
     } else {
         title.textContent = 'Add Repertoire';
         document.getElementById('repertoireId').value = '';
@@ -912,9 +997,18 @@ function openRepertoireModal(repertoire = null) {
             }
         });
         
-        // Hide delete button for new repertoires
+        // Hide delete and sync buttons for new repertoires
         if (deleteBtn) {
             deleteBtn.style.display = 'none';
+        }
+        if (syncBtn) {
+            syncBtn.style.display = 'none';
+        }
+        
+        // Hide setlist section for new repertoires
+        const setlistSection = document.getElementById('setlistSection');
+        if (setlistSection) {
+            setlistSection.style.display = 'none';
         }
     }
     
@@ -942,9 +1036,16 @@ async function handleRepertoireSubmit(e) {
         .filter(skill => document.getElementById(`rep-skill-${skill.id}`).checked)
         .map(skill => skill.id);
     
+    // Get folder paths and convert Windows to WSL format
+    const mp3Folder = document.getElementById('mp3Folder').value || null;
+    const sheetFolder = document.getElementById('sheetFolder').value || null;
+    
     const data = {
         name: document.getElementById('repertoireName').value,
-        skill_ids: selectedSkillIds
+        skill_ids: selectedSkillIds,
+        songlist_folder: null,  // No longer used
+        mp3_folder: mp3Folder ? convertWindowsToWSLPath(mp3Folder) : null,
+        sheet_folder: sheetFolder ? convertWindowsToWSLPath(sheetFolder) : null
     };
     
     try {
@@ -1003,6 +1104,111 @@ async function deleteRepertoire() {
     }
 }
 
+async function syncRepertoireFolders(repertoireId) {
+    if (!confirm('Scan linked folders and import missing songs, MP3s, and sheets?')) return;
+    
+    try {
+        const response = await fetch(`/api/repertoires/${repertoireId}/sync`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            const stats = await response.json();
+            let msg = 'Sync completed:\n\n';
+            msg += `Songs added: ${stats.songs_added}\n`;
+            msg += `MP3s linked: ${stats.mp3_linked}\n`;
+            msg += `Sheets linked: ${stats.sheets_linked}\n`;
+            if (stats.debug) {
+                msg += `\nDebug Info:\n`;
+                msg += `Songs in repertoire: ${stats.debug.songs_in_repertoire}\n`;
+                msg += `MP3 files found: ${stats.debug.mp3_files_found}\n`;
+                msg += `Sheet files found: ${stats.debug.sheet_files_found}\n`;
+            }
+            if (stats.errors.length > 0) {
+                msg += `\nErrors:\n${stats.errors.join('\n')}`;
+            }
+            alert(msg);
+            closeRepertoireModal();
+            loadRepertoires();
+            loadSongs();
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Error syncing folders');
+        }
+    } catch (error) {
+        console.error('Error syncing folders:', error);
+        alert('Error syncing folders');
+    }
+}
+
+async function saveRepertoireFolderPath(fieldName, folderPath) {
+    const repertoireId = document.getElementById('repertoireId').value;
+    if (!repertoireId) return; // Only save for existing repertoires
+    
+    // Convert Windows path to WSL path if needed
+    const convertedPath = convertWindowsToWSLPath(folderPath);
+    
+    try {
+        const data = {};
+        data[fieldName] = convertedPath;
+        
+        const response = await fetch(`/api/repertoires/${repertoireId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            console.log(`Saved ${fieldName}: ${folderPath} → ${convertedPath}`);
+            // Update the input field to show converted path
+            const inputId = fieldName === 'songlist_folder' ? 'songlistFolder' : 
+                           fieldName === 'mp3_folder' ? 'mp3Folder' : 'sheetFolder';
+            document.getElementById(inputId).value = convertedPath;
+            // Reload repertoires to update state
+            await loadRepertoires();
+        }
+    } catch (error) {
+        console.error('Error saving folder path:', error);
+    }
+}
+
+async function lookupSongMetadata() {
+    const title = document.getElementById('title').value.trim();
+    if (!title) {
+        alert('Please enter a song title first');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/songs/lookup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title })
+        });
+        
+        if (response.ok) {
+            const metadata = await response.json();
+            if (metadata.found) {
+                // Only fill if fields are empty
+                if (!document.getElementById('artist').value && metadata.artist) {
+                    document.getElementById('artist').value = metadata.artist;
+                }
+                if (!document.getElementById('releaseDate').value && metadata.release_date) {
+                    document.getElementById('releaseDate').value = metadata.release_date;
+                }
+                alert(`Found: ${metadata.artist} - ${metadata.title}${metadata.release_date ? ' (' + metadata.release_date + ')' : ''}`);
+            } else {
+                alert('No metadata found for this song');
+            }
+        } else {
+            alert('Lookup failed');
+        }
+    } catch (error) {
+        console.error('Lookup error:', error);
+        alert('Lookup failed');
+    }
+}
+
 // ==================== UTILITIES ====================
 
 function formatDate(isoString) {
@@ -1019,5 +1225,78 @@ function formatDate(isoString) {
         return `${diffDays} days ago`;
     } else {
         return date.toLocaleDateString();
+    }
+}
+
+// Format performance hints with bold text support
+function formatPerformanceHints(hints) {
+    if (!hints) return '';
+    // Replace **text** with <strong>text</strong>
+    const formatted = hints.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    return `<span class="performance-hints">(${formatted})</span>`;
+}
+
+// Insert bold formatting in performance hints textarea
+function insertBoldText() {
+    const textarea = document.getElementById('performanceHints');
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = textarea.value.substring(start, end);
+    
+    if (selectedText) {
+        // Wrap selected text in **
+        const before = textarea.value.substring(0, start);
+        const after = textarea.value.substring(end);
+        textarea.value = before + '**' + selectedText + '**' + after;
+        // Set cursor after the inserted text
+        textarea.selectionStart = textarea.selectionEnd = end + 4;
+    } else {
+        // Insert ** ** template with cursor in the middle
+        const before = textarea.value.substring(0, start);
+        const after = textarea.value.substring(end);
+        textarea.value = before + '****' + after;
+        // Set cursor between the **
+        textarea.selectionStart = textarea.selectionEnd = start + 2;
+    }
+    textarea.focus();
+}
+
+// Generate setlist PDF for current repertoire
+async function generateSetlistPDF() {
+    const repertoireId = document.getElementById('repertoireId').value;
+    if (!repertoireId) {
+        alert('Please save the repertoire first');
+        return;
+    }
+    
+    const maxSongNumber = document.getElementById('maxSongNumber').value;
+    
+    try {
+        const response = await fetch(`/api/repertoires/${repertoireId}/setlist-pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                max_song_number: maxSongNumber ? parseInt(maxSongNumber) : null
+            })
+        });
+        
+        if (response.ok) {
+            // Download the PDF
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `setlist_${repertoireId}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } else {
+            const error = await response.json();
+            alert(`Error generating PDF: ${error.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        alert('Error generating PDF');
     }
 }

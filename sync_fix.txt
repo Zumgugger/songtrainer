@@ -1,0 +1,13 @@
+The sync function now works in 3 steps:
+
+1. Scan MP3 folder - create new songs from MP3 filenames that don't exist yet
+   - Parses "Artist - Title.mp3" format
+   - Creates song with audio_path already linked
+   
+2. Link MP3s to existing songs without audio
+   - Matches by title/artist in filename
+   
+3. Link sheets to songs without charts
+   - Prioritizes: "chords" > "chart" > any match
+
+Removed songlist folder logic (no longer needed since songs are created from MP3s directly)
