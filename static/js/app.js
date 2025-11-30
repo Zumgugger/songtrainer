@@ -92,6 +92,21 @@ document.addEventListener('DOMContentLoaded', () => {
         renderSongs();
     });
 
+    // Toggle progress details
+    const toggleBtn = document.getElementById('toggleProgressDetails');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            const details = document.getElementById('progressDetails');
+            if (details.style.display === 'none') {
+                details.style.display = 'block';
+                toggleBtn.textContent = 'Show less ▲';
+            } else {
+                details.style.display = 'none';
+                toggleBtn.textContent = 'Show more ▼';
+            }
+        });
+    }
+
     // Hidden audio file input
     const audioInput = document.getElementById('audioFileInput');
     audioInput.addEventListener('change', async (e) => {
@@ -350,6 +365,27 @@ async function reorderSongsOnServer(orderedIds) {
     }
 }
 
+// Sort by specific skill
+function sortBySkill(skillName) {
+    const newSort = 'skill:' + skillName;
+    
+    // Toggle reverse if clicking same skill
+    if (currentSort === newSort) {
+        sortReverse = !sortReverse;
+    } else {
+        sortReverse = false;
+        currentSort = newSort;
+    }
+    
+    // Clear active state from sort buttons
+    document.querySelectorAll('.sort-btn').forEach(b => {
+        b.classList.remove('active');
+        b.textContent = b.textContent.replace(' ↑', '').replace(' ↓', '');
+    });
+    
+    renderSongs();
+}
+
 // ==================== RENDERING ====================
 
 function renderSongs() {
@@ -380,6 +416,22 @@ function renderSongs() {
             if (!a.release_date) return sortReverse ? -1 : 1;
             if (!b.release_date) return sortReverse ? 1 : -1;
             comparison = a.release_date.localeCompare(b.release_date);
+        } else if (currentSort === 'skills_mastered') {
+            const aSkills = a.skills.filter(s => s.is_mastered !== null);
+            const bSkills = b.skills.filter(s => s.is_mastered !== null);
+            const aMastered = aSkills.filter(s => s.is_mastered === 1).length;
+            const bMastered = bSkills.filter(s => s.is_mastered === 1).length;
+            comparison = aMastered - bMastered;
+        } else if (currentSort.startsWith('skill:')) {
+            // Sort by specific skill mastery
+            const skillName = currentSort.substring(6); // Remove 'skill:' prefix
+            const aSkill = a.skills.find(s => s.name === skillName && s.is_mastered !== null);
+            const bSkill = b.skills.find(s => s.name === skillName && s.is_mastered !== null);
+            
+            // Songs with skill assigned and mastered come first, then assigned but not mastered, then not assigned
+            const aValue = aSkill ? (aSkill.is_mastered === 1 ? 2 : 1) : 0;
+            const bValue = bSkill ? (bSkill.is_mastered === 1 ? 2 : 1) : 0;
+            comparison = aValue - bValue;
         }
         
         return sortReverse ? -comparison : comparison;
@@ -672,6 +724,90 @@ function updateOverallProgress() {
         const repName = currentRep ? ` (${currentRep.name})` : '';
         progressText.textContent = `${masteredSkills} / ${totalSkills} skills mastered${repName}`;
     }
+    
+    // Update detailed progress (practice and skills breakdown)
+    updateProgressDetails();
+}
+
+function updateProgressDetails() {
+    const repertoireSongs = currentRepertoireId 
+        ? songs.filter(s => s.repertoire_id === currentRepertoireId)
+        : songs;
+    
+    // Calculate practice progress
+    let totalPracticeTarget = 0;
+    let totalPracticeCount = 0;
+    
+    repertoireSongs.forEach(song => {
+        if (song.practice_target > 0) {
+            totalPracticeTarget += song.practice_target;
+            totalPracticeCount += Math.min(song.practice_count, song.practice_target);
+        }
+    });
+    
+    const practicePercentage = totalPracticeTarget > 0 
+        ? Math.round((totalPracticeCount / totalPracticeTarget) * 100) 
+        : 0;
+    
+    const practiceBar = document.getElementById('practiceProgressBar');
+    const practiceText = document.getElementById('practiceProgressText');
+    
+    if (practiceBar && practiceText) {
+        practiceBar.style.width = practicePercentage + '%';
+        practiceBar.textContent = practicePercentage + '%';
+        practiceBar.className = 'progress-bar' + (practicePercentage >= 100 ? ' complete' : '');
+        practiceText.textContent = `${totalPracticeCount} / ${totalPracticeTarget} practice sessions completed`;
+    }
+    
+    // Calculate per-skill progress
+    const skillsContainer = document.getElementById('skillsProgressBars');
+    if (!skillsContainer) return;
+    
+    // Group by skill
+    const skillStats = {};
+    
+    repertoireSongs.forEach(song => {
+        song.skills.forEach(skill => {
+            if (skill.is_mastered !== null) { // Only count assigned skills
+                if (!skillStats[skill.id]) {
+                    skillStats[skill.id] = {
+                        name: skill.name,
+                        total: 0,
+                        mastered: 0
+                    };
+                }
+                skillStats[skill.id].total++;
+                if (skill.is_mastered === 1) {
+                    skillStats[skill.id].mastered++;
+                }
+            }
+        });
+    });
+    
+    // Render skill progress bars
+    const skillsArray = Object.values(skillStats).sort((a, b) => a.name.localeCompare(b.name));
+    
+    if (skillsArray.length === 0) {
+        skillsContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No skills assigned to songs yet.</p>';
+        return;
+    }
+    
+    skillsContainer.innerHTML = skillsArray.map(skill => {
+        const percentage = Math.round((skill.mastered / skill.total) * 100);
+        return `
+            <div style="margin-bottom: 15px; cursor: pointer;" onclick="sortBySkill('${skill.name}')" title="Click to sort by this skill">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span style="font-size: 0.9rem;">${skill.name}</span>
+                    <span style="font-size: 0.85rem; color: var(--text-muted);">${skill.mastered} / ${skill.total}</span>
+                </div>
+                <div class="progress-bar-container" style="height: 18px;">
+                    <div class="progress-bar ${percentage >= 100 ? 'complete' : ''}" style="width: ${percentage}%; font-size: 0.8rem;">
+                        ${percentage}%
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 // ==================== MODAL FUNCTIONS ====================
@@ -716,6 +852,7 @@ function openModal(song = null) {
             ? Math.max(...songs.map(s => s.song_number)) 
             : 0;
         document.getElementById('songNumber').value = maxSongNumber + 1;
+        document.getElementById('practiceTarget').value = 5;
         
         // Check default skills for current repertoire
         if (currentRepertoireId) {
@@ -1214,7 +1351,11 @@ async function lookupSongMetadata() {
 function formatDate(isoString) {
     const date = new Date(isoString);
     const now = new Date();
-    const diffTime = Math.abs(now - date);
+    
+    // Compare calendar days, not timestamps
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const nowOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffTime = nowOnly - dateOnly;
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     
     if (diffDays === 0) {

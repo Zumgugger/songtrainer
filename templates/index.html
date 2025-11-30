@@ -25,11 +25,31 @@
         </div>
 
         <div class="overall-progress">
-            <h3>Overall Progress</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>Overall Progress</h3>
+                <button id="toggleProgressDetails" class="btn-link" style="font-size: 0.85rem; padding: 4px 8px;">Show more ▼</button>
+            </div>
             <div class="progress-bar-container">
                 <div id="overallProgressBar" class="progress-bar">0%</div>
             </div>
             <p id="overallProgressText">0 / 0 skills mastered</p>
+            
+            <div id="progressDetails" style="display: none; margin-top: 20px;">
+                <div style="margin-bottom: 20px;">
+                    <h4 style="margin-bottom: 10px;">Practice Progress</h4>
+                    <div class="progress-bar-container">
+                        <div id="practiceProgressBar" class="progress-bar">0%</div>
+                    </div>
+                    <p id="practiceProgressText" style="margin-top: 5px; font-size: 0.9rem;">0 / 0 practice sessions completed</p>
+                </div>
+                
+                <div>
+                    <h4 style="margin-bottom: 10px;">Skills Breakdown</h4>
+                    <div id="skillsProgressBars">
+                        <!-- Will be populated dynamically -->
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="controls">
@@ -39,6 +59,7 @@
                 <button class="sort-btn" data-sort="priority">Priority</button>
                 <button class="sort-btn" data-sort="last_practiced">Last Practiced</button>
                 <button class="sort-btn" data-sort="release_date">Release Date</button>
+                <button class="sort-btn" data-sort="skills_mastered">Skills Mastered</button>
             </div>
             <div class="search-controls">
                 <input type="text" id="searchInput" placeholder="Search song title..." />
