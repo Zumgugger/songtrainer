@@ -270,6 +270,27 @@ def ensure_performance_hints_column():
             cursor.execute('ALTER TABLE songs ADD COLUMN performance_hints TEXT')
             print('Added performance_hints column to songs table')
 
+def ensure_sync_history_table():
+    """Ensure sync_history table exists for undo functionality."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Create sync_history table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sync_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                repertoire_id INTEGER NOT NULL,
+                sync_timestamp TEXT NOT NULL,
+                operation_type TEXT NOT NULL,
+                song_id INTEGER,
+                field_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                FOREIGN KEY (repertoire_id) REFERENCES repertoires (id) ON DELETE CASCADE
+            )
+        ''')
+        print('Ensured sync_history table exists')
+
 if __name__ == '__main__':
     init_db()
     ensure_audio_path_column()
@@ -280,3 +301,4 @@ if __name__ == '__main__':
     ensure_indexes_and_normalize()
     ensure_repertoire_folder_columns()
     ensure_performance_hints_column()
+    ensure_sync_history_table()

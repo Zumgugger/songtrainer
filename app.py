@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file, abort, Response
 from werkzeug.utils import secure_filename
-from database import get_db, init_db, ensure_indexes_and_normalize, ensure_audio_path_column, ensure_chart_path_column, ensure_repertoire_id_column, ensure_release_date_column, ensure_repertoire_sort_order_column, ensure_repertoire_folder_columns
+from database import get_db, init_db, ensure_indexes_and_normalize, ensure_audio_path_column, ensure_chart_path_column, ensure_repertoire_id_column, ensure_release_date_column, ensure_repertoire_sort_order_column, ensure_repertoire_folder_columns, ensure_sync_history_table
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -58,6 +58,10 @@ else:
         pass
     try:
         ensure_repertoire_folder_columns()
+    except Exception:
+        pass
+    try:
+        ensure_sync_history_table()
     except Exception:
         pass
     try:
@@ -455,8 +459,8 @@ def chart(song_id):
 
 @app.route('/api/songs/<int:song_id>/audio', methods=['POST', 'DELETE'])
 def manage_audio(song_id):
-    """Attach (upload) or remove audio for a song.
-    POST multipart/form-data with field 'file' to upload.
+    """Attach or remove audio for a song.
+    POST with JSON field 'file_path' to link to existing file.
     DELETE to unlink existing audio_path.
     """
     with get_db() as conn:
@@ -469,26 +473,29 @@ def manage_audio(song_id):
             cur.execute('UPDATE songs SET audio_path = NULL WHERE id = ?', (song_id,))
             return jsonify({'message': 'Audio link removed'})
 
-        # POST upload
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No selected file'}), 400
-        filename = secure_filename(file.filename)
-        ext = os.path.splitext(filename)[1].lower()
+        # POST - link to file path
+        data = request.json
+        if not data or 'file_path' not in data:
+            return jsonify({'error': 'No file_path provided'}), 400
+        
+        file_path = data['file_path']
+        
+        # Validate file extension
+        ext = os.path.splitext(file_path)[1].lower()
         if ext not in ALLOWED_EXTS:
             return jsonify({'error': f'Unsupported file type {ext}'}), 400
-        save_name = f"song_{song_id}_{int(datetime.now().timestamp())}{ext}"
-        save_path = os.path.join(UPLOAD_FOLDER, save_name)
-        file.save(save_path)
-        cur.execute('UPDATE songs SET audio_path = ? WHERE id = ?', (save_path, song_id))
-        return jsonify({'message': 'Audio uploaded', 'audio_path': save_path})
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found at specified path'}), 404
+        
+        cur.execute('UPDATE songs SET audio_path = ? WHERE id = ?', (file_path, song_id))
+        return jsonify({'message': 'Audio linked', 'audio_path': file_path})
 
 @app.route('/api/songs/<int:song_id>/chart', methods=['POST', 'DELETE'])
 def manage_chart(song_id):
-    """Attach (upload) or remove chart for a song.
-    POST multipart/form-data with field 'file' to upload.
+    """Attach or remove chart for a song.
+    POST with JSON field 'file_path' to link to existing file.
     DELETE to unlink existing chart_path.
     """
     with get_db() as conn:
@@ -501,21 +508,24 @@ def manage_chart(song_id):
             cur.execute('UPDATE songs SET chart_path = NULL WHERE id = ?', (song_id,))
             return jsonify({'message': 'Chart link removed'})
 
-        # POST upload
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No selected file'}), 400
-        filename = secure_filename(file.filename)
-        ext = os.path.splitext(filename)[1].lower()
+        # POST - link to file path
+        data = request.json
+        if not data or 'file_path' not in data:
+            return jsonify({'error': 'No file_path provided'}), 400
+        
+        file_path = data['file_path']
+        
+        # Validate file extension
+        ext = os.path.splitext(file_path)[1].lower()
         if ext not in ALLOWED_CHART_EXTS:
             return jsonify({'error': f'Unsupported file type {ext}'}), 400
-        save_name = f"chart_{song_id}_{int(datetime.now().timestamp())}{ext}"
-        save_path = os.path.join(UPLOAD_FOLDER, save_name)
-        file.save(save_path)
-        cur.execute('UPDATE songs SET chart_path = ? WHERE id = ?', (save_path, song_id))
-        return jsonify({'message': 'Chart uploaded', 'chart_path': save_path})
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found at specified path'}), 404
+        
+        cur.execute('UPDATE songs SET chart_path = ? WHERE id = ?', (file_path, song_id))
+        return jsonify({'message': 'Chart linked', 'chart_path': file_path})
 
 # ==================== SKILLS API ====================
 
@@ -742,6 +752,11 @@ def sync_repertoire_folders(repertoire_id):
         if not rep:
             return jsonify({'error': 'Repertoire not found'}), 404
         
+        # Delete previous sync history for this repertoire
+        cursor.execute('DELETE FROM sync_history WHERE repertoire_id = ?', (repertoire_id,))
+        
+        sync_timestamp = datetime.now().isoformat()
+        
         stats = {
             'songs_added': 0,
             'mp3_linked': 0,
@@ -843,10 +858,17 @@ def sync_repertoire_folders(repertoire_id):
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (
                             title, artist, max_num + 1, repertoire_id,
-                            'mid', 0, 0, datetime.now().isoformat(), mp3_path, release_year
+                            'mid', 0, 5, datetime.now().isoformat(), mp3_path, release_year
                         ))
                         
                         song_id = cursor.lastrowid
+                        
+                        # Record song creation in sync history
+                        cursor.execute('''
+                            INSERT INTO sync_history (
+                                repertoire_id, sync_timestamp, operation_type, song_id, field_name, old_value, new_value
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ''', (repertoire_id, sync_timestamp, 'song_created', song_id, None, None, None))
                         
                         # Assign default skills
                         default_skills = cursor.execute(
@@ -893,6 +915,13 @@ def sync_repertoire_folders(repertoire_id):
                             if (song_title in name_no_ext or 
                                 name_no_ext in song_title or
                                 f'{song_artist} - {song_title}' in name_no_ext):
+                                
+                                # Record old value before updating
+                                cursor.execute('''
+                                    INSERT INTO sync_history (
+                                        repertoire_id, sync_timestamp, operation_type, song_id, field_name, old_value, new_value
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                ''', (repertoire_id, sync_timestamp, 'field_updated', song['id'], 'audio_path', None, mp3_path))
                                 
                                 cursor.execute(
                                     'UPDATE songs SET audio_path = ? WHERE id = ?',
@@ -950,6 +979,13 @@ def sync_repertoire_folders(repertoire_id):
                                 best_sheet = matching_sheets[0][0]
                     
                     if best_sheet:
+                        # Record old value before updating
+                        cursor.execute('''
+                            INSERT INTO sync_history (
+                                repertoire_id, sync_timestamp, operation_type, song_id, field_name, old_value, new_value
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ''', (repertoire_id, sync_timestamp, 'field_updated', song['id'], 'chart_path', None, best_sheet))
+                        
                         cursor.execute(
                             'UPDATE songs SET chart_path = ? WHERE id = ?',
                             (best_sheet, song['id'])
@@ -957,6 +993,64 @@ def sync_repertoire_folders(repertoire_id):
                         stats['sheets_linked'] += 1
             except Exception as e:
                 stats['errors'].append(f'Sheet sync error: {str(e)}')
+        
+        return jsonify(stats)
+
+@app.route('/api/repertoires/<int:repertoire_id>/undo-sync', methods=['POST'])
+def undo_sync_repertoire(repertoire_id):
+    """Undo the last sync operation for a repertoire"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Get repertoire
+        rep = cursor.execute(
+            'SELECT * FROM repertoires WHERE id = ?',
+            (repertoire_id,)
+        ).fetchone()
+        
+        if not rep:
+            return jsonify({'error': 'Repertoire not found'}), 404
+        
+        # Get sync history for this repertoire
+        history = cursor.execute(
+            'SELECT * FROM sync_history WHERE repertoire_id = ? ORDER BY id',
+            (repertoire_id,)
+        ).fetchall()
+        
+        if not history:
+            return jsonify({'error': 'No sync history to undo'}), 400
+        
+        stats = {
+            'songs_deleted': 0,
+            'audio_unlinked': 0,
+            'charts_unlinked': 0
+        }
+        
+        # Reverse the operations
+        for record in history:
+            if record['operation_type'] == 'song_created':
+                # Delete the song that was created
+                cursor.execute('DELETE FROM songs WHERE id = ?', (record['song_id'],))
+                stats['songs_deleted'] += 1
+            
+            elif record['operation_type'] == 'field_updated':
+                # Restore the old value
+                if record['field_name'] == 'audio_path':
+                    cursor.execute(
+                        'UPDATE songs SET audio_path = ? WHERE id = ?',
+                        (record['old_value'], record['song_id'])
+                    )
+                    stats['audio_unlinked'] += 1
+                
+                elif record['field_name'] == 'chart_path':
+                    cursor.execute(
+                        'UPDATE songs SET chart_path = ? WHERE id = ?',
+                        (record['old_value'], record['song_id'])
+                    )
+                    stats['charts_unlinked'] += 1
+        
+        # Clear the sync history after undoing
+        cursor.execute('DELETE FROM sync_history WHERE repertoire_id = ?', (repertoire_id,))
         
         return jsonify(stats)
 

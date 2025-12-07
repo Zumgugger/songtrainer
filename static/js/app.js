@@ -113,20 +113,38 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = e.target.files[0];
         if (!file || !currentAttachSongId) return;
         try {
-            const formData = new FormData();
-            formData.append('file', file);
+            // Try to get the full file path from the file object
+            let filePath = file.path;
+            
+            // If browser doesn't provide full path, ask user to type it
+            if (!filePath) {
+                filePath = prompt(`Selected file: ${file.name}\n\nBrowser cannot access full file path.\nPlease enter the complete path to this file:`, '');
+                if (!filePath) {
+                    e.target.value = '';
+                    currentAttachSongId = null;
+                    return;
+                }
+            }
+            
+            // Convert Windows path to WSL if needed
+            filePath = convertWindowsToWSLPath(filePath);
+            
             const res = await fetch(`/api/songs/${currentAttachSongId}/audio`, {
                 method: 'POST',
-                body: formData
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_path: filePath })
             });
             if (!res.ok) {
                 const msg = await res.json().catch(() => ({}));
-                alert(msg.error || 'Failed to upload audio');
+                alert(msg.error || 'Failed to link audio');
+            } else {
+                const result = await res.json();
+                console.log('Audio linked:', result);
             }
             await loadSongs();
         } catch (err) {
             console.error('Attach audio failed', err);
-            alert('Attach audio failed');
+            alert('Attach audio failed: ' + err.message);
         } finally {
             e.target.value = '';
             currentAttachSongId = null;
@@ -139,20 +157,38 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = e.target.files[0];
         if (!file || !currentAttachChartId) return;
         try {
-            const formData = new FormData();
-            formData.append('file', file);
+            // Try to get the full file path from the file object
+            let filePath = file.path;
+            
+            // If browser doesn't provide full path, ask user to type it
+            if (!filePath) {
+                filePath = prompt(`Selected file: ${file.name}\n\nBrowser cannot access full file path.\nPlease enter the complete path to this file:`, '');
+                if (!filePath) {
+                    e.target.value = '';
+                    currentAttachChartId = null;
+                    return;
+                }
+            }
+            
+            // Convert Windows path to WSL if needed
+            filePath = convertWindowsToWSLPath(filePath);
+            
             const res = await fetch(`/api/songs/${currentAttachChartId}/chart`, {
                 method: 'POST',
-                body: formData
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_path: filePath })
             });
             if (!res.ok) {
                 const msg = await res.json().catch(() => ({}));
-                alert(msg.error || 'Failed to upload chart');
+                alert(msg.error || 'Failed to link chart');
+            } else {
+                const result = await res.json();
+                console.log('Chart linked:', result);
             }
             await loadSongs();
         } catch (err) {
             console.error('Attach chart failed', err);
-            alert('Attach chart failed');
+            alert('Attach chart failed: ' + err.message);
         } finally {
             e.target.value = '';
             currentAttachChartId = null;
@@ -1086,6 +1122,7 @@ function openRepertoireModal(repertoire = null) {
     const title = document.getElementById('repertoireModalTitle');
     const deleteBtn = document.getElementById('deleteRepertoireBtn');
     const syncBtn = document.getElementById('syncRepertoireBtn');
+    const undoSyncBtn = document.getElementById('undoSyncBtn');
     
     form.reset();
     
@@ -1117,6 +1154,12 @@ function openRepertoireModal(repertoire = null) {
             syncBtn.onclick = () => syncRepertoireFolders(repertoire.id);
         }
         
+        // Show undo sync button for existing repertoires
+        if (undoSyncBtn) {
+            undoSyncBtn.style.display = 'inline-block';
+            undoSyncBtn.onclick = () => undoLastSync(repertoire.id);
+        }
+        
         // Show setlist PDF section for existing repertoires
         const setlistSection = document.getElementById('setlistSection');
         if (setlistSection) {
@@ -1140,6 +1183,9 @@ function openRepertoireModal(repertoire = null) {
         }
         if (syncBtn) {
             syncBtn.style.display = 'none';
+        }
+        if (undoSyncBtn) {
+            undoSyncBtn.style.display = 'none';
         }
         
         // Hide setlist section for new repertoires
@@ -1275,6 +1321,34 @@ async function syncRepertoireFolders(repertoireId) {
     } catch (error) {
         console.error('Error syncing folders:', error);
         alert('Error syncing folders');
+    }
+}
+
+async function undoLastSync(repertoireId) {
+    if (!confirm('Undo the last sync operation? This will:\n- Delete songs that were created\n- Remove audio/chart links that were added')) return;
+    
+    try {
+        const response = await fetch(`/api/repertoires/${repertoireId}/undo-sync`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            const stats = await response.json();
+            let msg = 'Undo completed:\n\n';
+            msg += `Songs deleted: ${stats.songs_deleted}\n`;
+            msg += `Audio links removed: ${stats.audio_unlinked}\n`;
+            msg += `Chart links removed: ${stats.charts_unlinked}\n`;
+            alert(msg);
+            closeRepertoireModal();
+            loadRepertoires();
+            loadSongs();
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Error undoing sync');
+        }
+    } catch (error) {
+        console.error('Error undoing sync:', error);
+        alert('Error undoing sync');
     }
 }
 
