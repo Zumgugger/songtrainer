@@ -441,6 +441,8 @@ function renderSongs() {
         
         if (currentSort === 'song_number') {
             comparison = a.song_number - b.song_number;
+        } else if (currentSort === 'name') {
+            comparison = (a.title || '').localeCompare(b.title || '');
         } else if (currentSort === 'priority') {
             const priorityOrder = { high: 0, mid: 1, low: 2 };
             comparison = priorityOrder[a.priority] - priorityOrder[b.priority];
