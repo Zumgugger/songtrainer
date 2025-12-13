@@ -282,12 +282,11 @@ async function loadRepertoires() {
         const response = await fetch('/api/repertoires');
         repertoires = await response.json();
         renderRepertoireTabs();
-        
-        // Select first repertoire by default
+        // Select first repertoire by default if none selected
         if (repertoires.length > 0 && !currentRepertoireId) {
             currentRepertoireId = repertoires[0].id;
         }
-        
+
         loadSongs();
     } catch (error) {
         console.error('Error loading repertoires:', error);
@@ -1055,7 +1054,6 @@ function renderRepertoireTabs() {
         tabsContainer.innerHTML = '<p style="color: #7f8c8d;">No repertoires. Click "+ Repertoire" to create one.</p>';
         return;
     }
-    
     tabsContainer.innerHTML = repertoires.map(rep => `
         <div class="tab ${rep.id === currentRepertoireId ? 'active' : ''}" 
              data-repid="${rep.id}" draggable="true">

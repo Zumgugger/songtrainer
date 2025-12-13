@@ -186,41 +186,30 @@ def update_song(song_id):
         
         # Reorder other songs if song_number changed (within same repertoire)
         if old_number != new_number:
-            # Get total count of songs in repertoire
-            max_row = cursor.execute('SELECT COUNT(*) as cnt FROM songs WHERE repertoire_id = ?', (repertoire_id,)).fetchone()
-            max_count = max_row['cnt']
-            
-            # Allow any number - will be normalized to valid range
-            # Clamp to reasonable bounds (1 to max_count)
+            # Build canonical new order list using two-phase update to avoid UNIQUE conflicts
+            rows = cursor.execute(
+                'SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC, id ASC',
+                (repertoire_id,)
+            ).fetchall()
+            ids = [r['id'] for r in rows]
+            # Remove the target song id
+            ids = [sid for sid in ids if sid != song_id]
+            # Clamp to bounds 1..N
+            max_count = len(ids) + 1
             if new_number < 1:
                 new_number = 1
             if new_number > max_count:
                 new_number = max_count
+            # Insert target at desired position (new_number is 1-based)
+            ids.insert(new_number - 1, song_id)
 
-            # Use sentinel approach: move target song out of the way first
-            sentinel = max_count + 100  # Safe temporary value
-            cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (sentinel, song_id))
-
-            if new_number < old_number:
-                # Moving up: shift songs in range [new_number, old_number-1] down by 1
-                cursor.execute('''
-                    UPDATE songs SET song_number = song_number + 1
-                    WHERE repertoire_id = ? AND song_number >= ? AND song_number < ?
-                ''', (repertoire_id, new_number, old_number))
-            else:
-                # Moving down: shift songs in range (old_number, new_number] up by 1
-                cursor.execute('''
-                    UPDATE songs SET song_number = song_number - 1
-                    WHERE repertoire_id = ? AND song_number > ? AND song_number <= ?
-                ''', (repertoire_id, old_number, new_number))
-
-            # Place moved song at desired position
-            cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (new_number, song_id))
-
-            # Normalize all song_numbers to ensure clean 1..N sequence
-            rows = cursor.execute('SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC', (repertoire_id,)).fetchall()
-            for i, row in enumerate(rows, start=1):
-                cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, row['id']))
+            # Phase 1: assign high temporary numbers to avoid UNIQUE collisions
+            base = 100000
+            for i, sid in enumerate(ids, start=1):
+                cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (base + i, sid))
+            # Phase 2: normalize to 1..N
+            for i, sid in enumerate(ids, start=1):
+                cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, sid))
         
         # Update the song itself
         cursor.execute('''
