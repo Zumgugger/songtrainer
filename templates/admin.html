@@ -9,7 +9,7 @@
 <body>
     <div class="container">
         <header>
-            <h1>⚙️ Manage Skills</h1>
+            <h1>⚙️ Admin</h1>
             <div class="header-actions">
                 <a href="/" class="btn btn-secondary">← Back to Songs</a>
             </div>
@@ -17,33 +17,61 @@
 
         <div class="admin-content">
             <div class="admin-section">
-                <h2>Add New Skill</h2>
+                <h2>Users</h2>
+                <form id="addUserForm" class="inline-form" style="gap:8px; flex-wrap: wrap;">
+                    <input type="email" id="newUserEmail" placeholder="email@example.com" required style="flex:1; min-width:180px;">
+                    <input type="password" id="newUserPassword" placeholder="password" required style="flex:1; min-width:140px;">
+                    <select id="newUserRole" style="min-width:120px;">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                    </select>
+                    <button type="submit" class="btn btn-primary">Add User</button>
+                </form>
+                <div id="usersList" class="skills-list" style="margin-top:12px;"></div>
+            </div>
+
+            <div class="admin-section">
+                <h2>Skills</h2>
                 <form id="addSkillForm" class="inline-form">
                     <input type="text" id="newSkillName" placeholder="Skill name" required>
                     <button type="submit" class="btn btn-primary">Add Skill</button>
                 </form>
-            </div>
-
-            <div class="admin-section">
-                <h2>Current Skills</h2>
-                <div id="skillsList" class="skills-list">
-                    <!-- Skills will be loaded here -->
-                </div>
+                <div id="skillsList" class="skills-list" style="margin-top:12px;"></div>
             </div>
         </div>
     </div>
 
     <script>
         let skills = [];
+        let users = [];
 
-        // Load skills
         async function loadSkills() {
             try {
                 const response = await fetch('/api/skills');
+                if (response.status === 401) {
+                    window.location = '/login?next=/admin';
+                    return;
+                }
                 skills = await response.json();
                 renderSkills();
             } catch (error) {
                 console.error('Error loading skills:', error);
+            }
+        }
+
+        async function loadUsers() {
+            try {
+                const res = await fetch('/api/users');
+                if (res.status === 401) {
+                    window.location = '/login?next=/admin';
+                    return;
+                }
+                if (!res.ok) throw new Error('Failed to load users');
+                const data = await res.json();
+                users = data.users || [];
+                renderUsers();
+            } catch (err) {
+                console.error('Error loading users', err);
             }
         }
 
@@ -64,6 +92,29 @@
                     <div class="skill-actions">
                         <button class="btn-icon" onclick="editSkill(${skill.id}, '${skill.name.replace(/'/g, "\\'")}')">✏️</button>
                         <button class="btn-icon" onclick="deleteSkill(${skill.id}, '${skill.name.replace(/'/g, "\\'")}')">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderUsers() {
+            const container = document.getElementById('usersList');
+            if (!users.length) {
+                container.innerHTML = '<p class="empty-state">No users yet.</p>';
+                return;
+            }
+
+            container.innerHTML = users.map(u => `
+                <div class="skill-item">
+                    <div class="skill-info">
+                        <span class="skill-name" data-id="${u.id}">${u.email}</span>
+                        <small style="color: var(--text-muted);">${u.role}</small>
+                    </div>
+                    <div class="skill-actions" style="gap:6px;">
+                        <button class="btn-icon" title="Reset password" onclick="resetUserPassword(${u.id})">🔑</button>
+                        <button class="btn-icon" title="Toggle role" onclick="toggleUserRole(${u.id}, '${u.role}')">⇅</button>
+                        <button class="btn-icon" title="View progress" onclick="viewProgress(${u.id})">📈</button>
+                        <button class="btn-icon" title="Delete" onclick="deleteUser(${u.id}, '${u.email.replace(/'/g, "\\'")}')">🗑️</button>
                     </div>
                 </div>
             `).join('');
@@ -93,6 +144,33 @@
             } catch (error) {
                 console.error('Error adding skill:', error);
                 alert('Error adding skill');
+            }
+        });
+
+        // Add user
+        document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('newUserEmail').value.trim();
+            const password = document.getElementById('newUserPassword').value;
+            const role = document.getElementById('newUserRole').value;
+            if (!email || !password) return;
+            try {
+                const res = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password, role })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    alert(err.error || 'Error creating user');
+                    return;
+                }
+                document.getElementById('newUserEmail').value = '';
+                document.getElementById('newUserPassword').value = '';
+                document.getElementById('newUserRole').value = 'user';
+                loadUsers();
+            } catch (err) {
+                alert('Error creating user');
             }
         });
 
@@ -141,8 +219,62 @@
             }
         }
 
+        async function resetUserPassword(id) {
+            const newPassword = prompt('Enter new password (min 8 chars):');
+            if (!newPassword || newPassword.length < 8) return alert('Password too short');
+            const res = await fetch(`/api/users/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: newPassword })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || 'Failed to reset password');
+            } else {
+                alert('Password updated');
+            }
+        }
+
+        async function toggleUserRole(id, currentRole) {
+            const nextRole = currentRole === 'admin' ? 'user' : 'admin';
+            const res = await fetch(`/api/users/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: nextRole })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || 'Failed to change role');
+            } else {
+                loadUsers();
+            }
+        }
+
+        async function deleteUser(id, email) {
+            if (!confirm(`Delete user ${email}? This removes their repertoires and songs.`)) return;
+            const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || 'Failed to delete user');
+            } else {
+                loadUsers();
+            }
+        }
+
+        async function viewProgress(id) {
+            const res = await fetch(`/api/users/${id}/progress`);
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.error || 'Failed to load progress');
+                return;
+            }
+            const data = await res.json();
+            alert(`User: ${data.user.email}\nSongs: ${data.songs_total}\nPracticed songs: ${data.songs_practiced}\nPractice events: ${data.practice_events}\nSkills mastered: ${data.skills_mastered}/${data.skills_total}`);
+        }
+
         // Initialize
         loadSkills();
+        loadUsers();
     </script>
 </body>
 </html>

@@ -1,8 +1,14 @@
+import os
 import sqlite3
 from datetime import datetime
 from contextlib import contextmanager
+from werkzeug.security import generate_password_hash
 
 DATABASE = 'songs.db'
+
+# Defaults for bootstrapping the first admin user when none exist yet.
+DEFAULT_ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'admin@example.com')
+DEFAULT_ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123')
 
 @contextmanager
 def get_db():
@@ -18,17 +24,73 @@ def get_db():
     finally:
         conn.close()
 
+
+def _ensure_admin_user(cursor):
+    """Ensure there is at least one admin user; returns (admin_id, created_password)."""
+    created_password = None
+    admin = cursor.execute('SELECT id FROM users WHERE role = "admin" LIMIT 1').fetchone()
+    if admin:
+        return admin['id'], created_password
+
+    existing = cursor.execute('SELECT id FROM users LIMIT 1').fetchone()
+    if existing:
+        cursor.execute('UPDATE users SET role = "admin" WHERE id = ?', (existing['id'],))
+        return existing['id'], created_password
+
+    now = datetime.now().isoformat()
+    password_hash = generate_password_hash(DEFAULT_ADMIN_PASSWORD)
+    cursor.execute(
+        'INSERT INTO users (email, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        (DEFAULT_ADMIN_EMAIL, password_hash, 'admin', now, now)
+    )
+    created_password = DEFAULT_ADMIN_PASSWORD
+    return cursor.lastrowid, created_password
+
 def init_db():
     """Initialize the database with tables and default skills"""
     with get_db() as conn:
         cursor = conn.cursor()
         
+        # Create users table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('user', 'admin')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                reset_token TEXT,
+                reset_token_expires_at TEXT
+            )
+        ''')
+
+        # Remember-me tokens table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS remember_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_remember_tokens_user ON remember_tokens (user_id)')
+
         # Create repertoires table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS repertoires (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
-                date_created TEXT NOT NULL
+                date_created TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                sort_order INTEGER,
+                songlist_folder TEXT,
+                mp3_folder TEXT,
+                sheet_folder TEXT,
+                notes TEXT,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             )
         ''')
         
@@ -40,6 +102,7 @@ def init_db():
                 artist TEXT NOT NULL,
                 song_number INTEGER NOT NULL,
                 repertoire_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
                 priority TEXT NOT NULL CHECK(priority IN ('low', 'mid', 'high')),
                 practice_count INTEGER DEFAULT 0,
                 practice_target INTEGER DEFAULT 0,
@@ -49,7 +112,9 @@ def init_db():
                 notes TEXT,
                 audio_path TEXT,
                 chart_path TEXT,
+                performance_hints TEXT,
                 FOREIGN KEY (repertoire_id) REFERENCES repertoires (id) ON DELETE CASCADE
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             )
         ''')
         
@@ -110,12 +175,16 @@ def init_db():
                 (skill,)
             )
         
+        # Ensure admin user exists
+        admin_id, created_admin_password = _ensure_admin_user(cursor)
+
         # Create default repertoire if none exists
         repertoire_count = cursor.execute('SELECT COUNT(*) FROM repertoires').fetchone()[0]
         if repertoire_count == 0:
+            now = datetime.now().isoformat()
             cursor.execute(
-                'INSERT INTO repertoires (name, date_created) VALUES (?, ?)',
-                ('My Repertoire', datetime.now().isoformat())
+                'INSERT INTO repertoires (name, date_created, user_id, sort_order) VALUES (?, ?, ?, ?)',
+                ('My Repertoire', now, admin_id, 1)
             )
             repertoire_id = cursor.lastrowid
             
@@ -128,6 +197,108 @@ def init_db():
                 )
         
         print("Database initialized successfully!")
+        if created_admin_password:
+            print(
+                f"Created default admin user {DEFAULT_ADMIN_EMAIL} with password {created_admin_password}. "
+                "Change this password immediately."
+            )
+
+
+def ensure_users_table():
+    """Ensure users table exists with required columns."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin')),
+                created_at TEXT,
+                updated_at TEXT,
+                reset_token TEXT,
+                reset_token_expires_at TEXT
+            )
+        ''')
+
+        cols = {c['name'] for c in cursor.execute('PRAGMA table_info(users)').fetchall()}
+        now = datetime.now().isoformat()
+
+        if 'role' not in cols:
+            cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+        if 'created_at' not in cols:
+            cursor.execute('ALTER TABLE users ADD COLUMN created_at TEXT')
+            cursor.execute('UPDATE users SET created_at = ? WHERE created_at IS NULL', (now,))
+        if 'updated_at' not in cols:
+            cursor.execute('ALTER TABLE users ADD COLUMN updated_at TEXT')
+            cursor.execute('UPDATE users SET updated_at = ? WHERE updated_at IS NULL', (now,))
+        if 'reset_token' not in cols:
+            cursor.execute('ALTER TABLE users ADD COLUMN reset_token TEXT')
+        if 'reset_token_expires_at' not in cols:
+            cursor.execute('ALTER TABLE users ADD COLUMN reset_token_expires_at TEXT')
+
+
+def ensure_remember_tokens_table():
+    """Ensure remember_tokens table exists for persistent logins."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS remember_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token_hash TEXT NOT NULL,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_remember_tokens_user ON remember_tokens (user_id)')
+
+
+def ensure_default_admin():
+    """Ensure at least one admin user exists and return its id."""
+    ensure_users_table()
+    with get_db() as conn:
+        cursor = conn.cursor()
+        admin_id, created_password = _ensure_admin_user(cursor)
+        if created_password:
+            print(
+                f"Created default admin user {DEFAULT_ADMIN_EMAIL} with password {created_password}. "
+                "Change this password immediately."
+            )
+        return admin_id
+
+
+def ensure_repertoire_user_column(default_user_id):
+    """Ensure repertoires.user_id exists and backfill with default user."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(repertoires)').fetchall()
+        colnames = {c['name'] for c in cols}
+        if 'user_id' not in colnames:
+            cursor.execute('ALTER TABLE repertoires ADD COLUMN user_id INTEGER')
+            cursor.execute('UPDATE repertoires SET user_id = ?', (default_user_id,))
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_repertoires_user_id ON repertoires (user_id)')
+
+
+def ensure_song_user_column(default_user_id):
+    """Ensure songs.user_id exists and backfill based on repertoire ownership."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(songs)').fetchall()
+        colnames = {c['name'] for c in cols}
+        if 'user_id' not in colnames:
+            cursor.execute('ALTER TABLE songs ADD COLUMN user_id INTEGER')
+            # Try to backfill from repertoire ownership when available
+            cursor.execute('''
+                UPDATE songs
+                SET user_id = (
+                    SELECT r.user_id FROM repertoires r WHERE r.id = songs.repertoire_id
+                )
+                WHERE user_id IS NULL
+            ''')
+            cursor.execute('UPDATE songs SET user_id = ? WHERE user_id IS NULL', (default_user_id,))
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_songs_user_id ON songs (user_id)')
 
 def ensure_audio_path_column():
     """Ensure songs.audio_path column exists for linking audio files."""
@@ -157,15 +328,17 @@ def ensure_repertoire_id_column():
         colnames = {c['name'] for c in cols}
         
         if 'repertoire_id' not in colnames:
+            admin_id = ensure_default_admin()
             # Create default repertoire if it doesn't exist
             default_rep = cursor.execute(
                 "SELECT id FROM repertoires WHERE name = 'My Repertoire'"
             ).fetchone()
             
             if not default_rep:
+                now = datetime.now().isoformat()
                 cursor.execute(
-                    'INSERT INTO repertoires (name, date_created) VALUES (?, ?)',
-                    ('My Repertoire', datetime.now().isoformat())
+                    'INSERT INTO repertoires (name, date_created, user_id, sort_order) VALUES (?, ?, ?, ?)',
+                    ('My Repertoire', now, admin_id, 1)
                 )
                 default_rep_id = cursor.lastrowid
                 
@@ -293,6 +466,11 @@ def ensure_sync_history_table():
 
 if __name__ == '__main__':
     init_db()
+    ensure_users_table()
+    ensure_remember_tokens_table()
+    admin_id_main = ensure_default_admin()
+    ensure_repertoire_user_column(admin_id_main)
+    ensure_song_user_column(admin_id_main)
     ensure_audio_path_column()
     ensure_chart_path_column()
     ensure_repertoire_id_column()

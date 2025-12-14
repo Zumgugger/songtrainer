@@ -34,7 +34,11 @@
             <h1>🎵 Song Trainer</h1>
             <div class="header-actions">
                 <button id="addSongBtn" class="btn btn-primary">+ Add Song</button>
-                <a href="/admin" class="btn btn-secondary">⚙️ Manage Skills</a>
+                <a href="/admin" id="adminLink" class="btn btn-secondary" style="display:none;">⚙️ Admin</a>
+                <div class="user-chip" style="display:flex; align-items:center; gap:8px;">
+                    <span id="userEmail" style="font-weight:600; color: var(--text-secondary);"></span>
+                    <button id="logoutBtn" class="btn btn-link" style="padding:6px 10px;">Logout</button>
+                </div>
             </div>
         </header>
 

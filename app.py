@@ -1,7 +1,26 @@
-from flask import Flask, render_template, request, jsonify, send_file, abort, Response
+from flask import Flask, render_template, request, jsonify, send_file, abort, Response, session, redirect, url_for, g, make_response
 from werkzeug.utils import secure_filename
-from database import get_db, init_db, ensure_indexes_and_normalize, ensure_audio_path_column, ensure_chart_path_column, ensure_repertoire_id_column, ensure_release_date_column, ensure_repertoire_sort_order_column, ensure_repertoire_folder_columns, ensure_sync_history_table, ensure_repertoire_notes_column
-from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+from database import (
+    get_db,
+    init_db,
+    ensure_indexes_and_normalize,
+    ensure_audio_path_column,
+    ensure_chart_path_column,
+    ensure_repertoire_id_column,
+    ensure_release_date_column,
+    ensure_repertoire_sort_order_column,
+    ensure_repertoire_folder_columns,
+    ensure_sync_history_table,
+    ensure_repertoire_notes_column,
+    ensure_users_table,
+    ensure_remember_tokens_table,
+    ensure_default_admin,
+    ensure_repertoire_user_column,
+    ensure_song_user_column,
+)
+from datetime import datetime, timedelta
+from functools import wraps
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
@@ -17,8 +36,20 @@ import urllib.parse
 import json
 import time
 import re
+import secrets
+import hashlib
 
 app = Flask(__name__)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-change-me')
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_COOKIE_SECURE', 'false').lower() == 'true'
+app.permanent_session_lifetime = timedelta(hours=12)
+
+REMEMBER_COOKIE_NAME = 'songtrainer_remember'
+REMEMBER_TOKEN_DAYS = 30
+RESET_TOKEN_HOURS = 2
+
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 ALLOWED_EXTS = {'.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg'}
 ALLOWED_CHART_EXTS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.txt', '.doc', '.docx'}
@@ -27,60 +58,567 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Initialize database on first run
 if not os.path.exists('songs.db'):
     init_db()
+
+# Ensure constraints exist and ordering is normalized on startup
+admin_user_id = None
+try:
+    ensure_users_table()
+except Exception:
+    pass
+
+try:
+    ensure_remember_tokens_table()
+except Exception:
+    pass
+
+try:
+    admin_user_id = ensure_default_admin()
+except Exception:
+    admin_user_id = None
+
+try:
+    ensure_repertoire_user_column(admin_user_id or ensure_default_admin())
+except Exception:
+    pass
+
+try:
+    ensure_song_user_column(admin_user_id or ensure_default_admin())
+except Exception:
+    pass
+
+try:
     ensure_audio_path_column()
+except Exception:
+    pass
+try:
     ensure_chart_path_column()
+except Exception:
+    pass
+try:
     ensure_repertoire_id_column()
+except Exception:
+    pass
+try:
     ensure_release_date_column()
+except Exception:
+    pass
+try:
     ensure_repertoire_sort_order_column()
+except Exception:
+    pass
+try:
     ensure_repertoire_folder_columns()
+except Exception:
+    pass
+try:
+    ensure_sync_history_table()
+except Exception:
+    pass
+try:
+    ensure_repertoire_notes_column()
+except Exception:
+    pass
+try:
     ensure_indexes_and_normalize()
-else:
-    # Ensure constraints exist and ordering is normalized on startup
+except Exception:
+    pass
+
+# ==================== AUTH HELPERS ====================
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+
+def _serialize_user(row):
+    return {'id': row['id'], 'email': row['email'], 'role': row['role']}
+
+
+def _load_user(user_id):
+    if not user_id:
+        return None
+    with get_db() as conn:
+        cursor = conn.cursor()
+        return cursor.execute(
+            'SELECT id, email, role FROM users WHERE id = ?',
+            (user_id,)
+        ).fetchone()
+
+
+def _clear_remember_token(token_cookie_value):
+    if not token_cookie_value:
+        return
     try:
-        ensure_audio_path_column()
+        token_id_str, raw_token = token_cookie_value.split(':', 1)
+        token_id = int(token_id_str)
     except Exception:
-        pass
+        return
+
+    token_hash = _hash_token(raw_token)
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'DELETE FROM remember_tokens WHERE id = ? AND token_hash = ?',
+            (token_id, token_hash)
+        )
+
+
+def _login_user(user_id, remember_me=False):
+    """Set session and optional remember-me cookie value (token string)."""
+    session['user_id'] = user_id
+    session.permanent = True
+
+    if not remember_me:
+        return None
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(raw_token)
+    issued_at = datetime.now().isoformat()
+    expires_at = (datetime.now() + timedelta(days=REMEMBER_TOKEN_DAYS)).isoformat()
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO remember_tokens (user_id, token_hash, issued_at, expires_at) VALUES (?, ?, ?, ?)',
+            (user_id, token_hash, issued_at, expires_at)
+        )
+        token_id = cursor.lastrowid
+
+    return f"{token_id}:{raw_token}"
+
+
+def _logout_user():
+    token_cookie = request.cookies.get(REMEMBER_COOKIE_NAME)
+    _clear_remember_token(token_cookie)
+    session.pop('user_id', None)
+
+
+def _set_remember_cookie(response, token_value):
+    if token_value:
+        response.set_cookie(
+            REMEMBER_COOKIE_NAME,
+            token_value,
+            max_age=REMEMBER_TOKEN_DAYS * 24 * 60 * 60,
+            httponly=True,
+            samesite='Lax',
+            secure=app.config['SESSION_COOKIE_SECURE'],
+            path='/'
+        )
+    else:
+        response.delete_cookie(REMEMBER_COOKIE_NAME, path='/')
+    return response
+
+
+@app.before_request
+def attach_current_user():
+    g.current_user = None
+
+    # Load from session first
+    user_id = session.get('user_id')
+    if user_id:
+        user = _load_user(user_id)
+        if user:
+            g.current_user = user
+            return
+        session.pop('user_id', None)
+
+    # Fallback to remember-me cookie
+    remember_value = request.cookies.get(REMEMBER_COOKIE_NAME)
+    if not remember_value:
+        return
+
     try:
-        ensure_chart_path_column()
+        token_id_str, raw_token = remember_value.split(':', 1)
+        token_id = int(token_id_str)
     except Exception:
-        pass
+        return
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        token_row = cursor.execute(
+            'SELECT user_id, token_hash, expires_at FROM remember_tokens WHERE id = ?',
+            (token_id,)
+        ).fetchone()
+
+    if not token_row:
+        return
+
     try:
-        ensure_repertoire_id_column()
+        expires_at = datetime.fromisoformat(token_row['expires_at'])
     except Exception:
-        pass
-    try:
-        ensure_release_date_column()
-    except Exception:
-        pass
-    try:
-        ensure_repertoire_sort_order_column()
-    except Exception:
-        pass
-    try:
-        ensure_repertoire_folder_columns()
-    except Exception:
-        pass
-    try:
-        ensure_sync_history_table()
-    except Exception:
-        pass
-    try:
-        ensure_repertoire_notes_column()
-    except Exception:
-        pass
-    try:
-        ensure_indexes_and_normalize()
-    except Exception:
-        pass
+        _clear_remember_token(remember_value)
+        return
+
+    if expires_at < datetime.now():
+        _clear_remember_token(remember_value)
+        return
+
+    if token_row['token_hash'] != _hash_token(raw_token):
+        _clear_remember_token(remember_value)
+        return
+
+    user = _load_user(token_row['user_id'])
+    if user:
+        session['user_id'] = user['id']
+        g.current_user = user
+
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not getattr(g, 'current_user', None):
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Authentication required'}), 401
+            return redirect(url_for('login', next=request.path))
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user = getattr(g, 'current_user', None)
+        if not user:
+            if request.path.startswith('/api/'):
+                return jsonify({'error': 'Authentication required'}), 401
+            return redirect(url_for('login', next=request.path))
+        if user['role'] != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def _resolve_scope_user_id(requested_user_id):
+    """Admin can request another user_id; others stay on their own."""
+    current = getattr(g, 'current_user', None)
+    if not current:
+        return None
+    if current['role'] == 'admin' and requested_user_id:
+        with get_db() as conn:
+            cursor = conn.cursor()
+            exists = cursor.execute('SELECT id FROM users WHERE id = ?', (requested_user_id,)).fetchone()
+            if exists:
+                return requested_user_id
+    return current['id']
+
+
+def _require_repertoire(cursor, repertoire_id, scope_user_id=None):
+    scope = scope_user_id or (g.current_user['id'] if g.current_user else None)
+    rep = cursor.execute('SELECT * FROM repertoires WHERE id = ?', (repertoire_id,)).fetchone()
+    if not rep:
+        abort(404)
+    if g.current_user['role'] != 'admin' and rep['user_id'] != scope:
+        abort(403)
+    return rep
+
+
+def _require_song(cursor, song_id, scope_user_id=None):
+    scope = scope_user_id or (g.current_user['id'] if g.current_user else None)
+    song = cursor.execute(
+        '''
+        SELECT s.*, r.user_id AS owner_id
+        FROM songs s
+        JOIN repertoires r ON r.id = s.repertoire_id
+        WHERE s.id = ?
+        ''',
+        (song_id,)
+    ).fetchone()
+    if not song:
+        abort(404)
+    if g.current_user['role'] != 'admin' and song['owner_id'] != scope:
+        abort(403)
+    return song
 
 # ==================== ROUTES ====================
 
+
+@app.route('/login')
+def login():
+    if getattr(g, 'current_user', None):
+        return redirect(url_for('index'))
+    next_url = request.args.get('next', url_for('index'))
+    return render_template('login.html', next_url=next_url)
+
+
+@app.route('/logout', methods=['GET'])
+def logout_page():
+    _logout_user()
+    resp = redirect(url_for('login'))
+    _set_remember_cookie(resp, None)
+    return resp
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def api_login():
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    remember_me = bool(data.get('remember'))
+
+    if not email or not password:
+        return jsonify({'error': 'Email and password are required'}), 400
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        user = cursor.execute(
+            'SELECT id, email, password_hash, role FROM users WHERE lower(email) = ?',
+            (email,)
+        ).fetchone()
+
+    if not user or not check_password_hash(user['password_hash'], password):
+        return jsonify({'error': 'Invalid credentials'}), 401
+
+    remember_value = _login_user(user['id'], remember_me=remember_me)
+    resp = jsonify({'user': _serialize_user(user)})
+    _set_remember_cookie(resp, remember_value)
+    return resp
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    _logout_user()
+    resp = jsonify({'message': 'Logged out'})
+    _set_remember_cookie(resp, None)
+    return resp
+
+
+@app.route('/api/auth/me', methods=['GET'])
+@login_required
+def api_me():
+    return jsonify({'user': _serialize_user(g.current_user)})
+
+
+@app.route('/api/auth/reset/request', methods=['POST'])
+def api_reset_request():
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+
+    if not email:
+        return jsonify({'error': 'Email is required'}), 400
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        user = cursor.execute(
+            'SELECT id, email FROM users WHERE lower(email) = ?',
+            (email,)
+        ).fetchone()
+
+        if not user:
+            # Do not leak existence
+            return jsonify({'message': 'If an account exists, a reset token was generated.'})
+
+        reset_token = secrets.token_urlsafe(32)
+        reset_hash = _hash_token(reset_token)
+        expires_at = (datetime.now() + timedelta(hours=RESET_TOKEN_HOURS)).isoformat()
+        cursor.execute(
+            'UPDATE users SET reset_token = ?, reset_token_expires_at = ?, updated_at = ? WHERE id = ?',
+            (reset_hash, expires_at, datetime.now().isoformat(), user['id'])
+        )
+
+    # Email sending is skipped; surface token for local testing
+    return jsonify({
+        'message': 'Reset token generated (email delivery disabled in this environment).',
+        'reset_token': reset_token,
+        'expires_at': expires_at,
+    })
+
+
+@app.route('/api/auth/reset/confirm', methods=['POST'])
+def api_reset_confirm():
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    token = data.get('token') or ''
+    new_password = data.get('new_password') or ''
+
+    if not email or not token or not new_password:
+        return jsonify({'error': 'Email, token, and new password are required'}), 400
+    if len(new_password) < 8:
+        return jsonify({'error': 'New password must be at least 8 characters'}), 400
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        user = cursor.execute(
+            'SELECT id, reset_token, reset_token_expires_at FROM users WHERE lower(email) = ?',
+            (email,)
+        ).fetchone()
+
+        if not user or not user['reset_token'] or not user['reset_token_expires_at']:
+            return jsonify({'error': 'Invalid or expired token'}), 400
+
+        try:
+            expires_at = datetime.fromisoformat(user['reset_token_expires_at'])
+        except Exception:
+            return jsonify({'error': 'Invalid or expired token'}), 400
+
+        if expires_at < datetime.now():
+            return jsonify({'error': 'Invalid or expired token'}), 400
+
+        if user['reset_token'] != _hash_token(token):
+            return jsonify({'error': 'Invalid or expired token'}), 400
+
+        new_hash = generate_password_hash(new_password)
+        now = datetime.now().isoformat()
+        cursor.execute(
+            'UPDATE users SET password_hash = ?, reset_token = NULL, reset_token_expires_at = NULL, updated_at = ? WHERE id = ?',
+            (new_hash, now, user['id'])
+        )
+        cursor.execute('DELETE FROM remember_tokens WHERE user_id = ?', (user['id'],))
+
+    resp = jsonify({'message': 'Password reset successful. Please log in.'})
+    _set_remember_cookie(resp, None)
+    return resp
+
+
+# ==================== USERS API (ADMIN) ====================
+
+
+@app.route('/api/users', methods=['GET'])
+@admin_required
+def list_users():
+    with get_db() as conn:
+        cursor = conn.cursor()
+        users = cursor.execute(
+            'SELECT id, email, role, created_at, updated_at FROM users ORDER BY id'
+        ).fetchall()
+        return jsonify({'users': [_serialize_user(u) | {'created_at': u['created_at'], 'updated_at': u['updated_at']} for u in users]})
+
+
+@app.route('/api/users', methods=['POST'])
+@admin_required
+def create_user():
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+    role = data.get('role', 'user')
+
+    if not email or not password:
+        return jsonify({'error': 'Email and password are required'}), 400
+    if len(password) < 8:
+        return jsonify({'error': 'Password must be at least 8 characters'}), 400
+    if role not in ('user', 'admin'):
+        return jsonify({'error': 'Invalid role'}), 400
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        try:
+            now = datetime.now().isoformat()
+            cursor.execute(
+                'INSERT INTO users (email, password_hash, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+                (email, generate_password_hash(password), role, now, now)
+            )
+            user_id = cursor.lastrowid
+            return jsonify({'id': user_id, 'message': 'User created'})
+        except sqlite3.IntegrityError:
+            return jsonify({'error': 'Email already exists'}), 400
+
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@admin_required
+def update_user(user_id):
+    data = request.json or {}
+    email = (data.get('email') or '').strip().lower() if data.get('email') is not None else None
+    password = data.get('password')
+    role = data.get('role')
+
+    if password is not None and len(password) < 8:
+        return jsonify({'error': 'Password must be at least 8 characters'}), 400
+    if role is not None and role not in ('user', 'admin'):
+        return jsonify({'error': 'Invalid role'}), 400
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        existing = cursor.execute('SELECT id, role FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not existing:
+            return jsonify({'error': 'User not found'}), 404
+
+        if role == 'user' and user_id == g.current_user['id']:
+            return jsonify({'error': 'You cannot demote your own admin role'}), 400
+
+        fields = []
+        values = []
+        if email is not None:
+            fields.append('email = ?')
+            values.append(email)
+        if role is not None:
+            fields.append('role = ?')
+            values.append(role)
+        if password is not None:
+            fields.append('password_hash = ?')
+            values.append(generate_password_hash(password))
+        if not fields:
+            return jsonify({'message': 'No changes applied'})
+        fields.append('updated_at = ?')
+        values.append(datetime.now().isoformat())
+        values.append(user_id)
+
+        try:
+            cursor.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", values)
+        except sqlite3.IntegrityError:
+            return jsonify({'error': 'Email already exists'}), 400
+
+    return jsonify({'message': 'User updated'})
+
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@admin_required
+def delete_user(user_id):
+    if user_id == g.current_user['id']:
+        return jsonify({'error': 'You cannot delete your own account'}), 400
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        deleted = cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        if deleted.rowcount == 0:
+            return jsonify({'error': 'User not found'}), 404
+    return jsonify({'message': 'User deleted'})
+
+
+@app.route('/api/users/<int:user_id>/progress', methods=['GET'])
+@admin_required
+def user_progress(user_id):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        user = cursor.execute('SELECT id, email FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        songs = cursor.execute(
+            'SELECT id, practice_count, practice_target FROM songs WHERE user_id = ?',
+            (user_id,)
+        ).fetchall()
+        song_ids = [s['id'] for s in songs]
+
+        mastered = 0
+        total_skills = 0
+        if song_ids:
+            placeholders = ','.join('?' for _ in song_ids)
+            rows = cursor.execute(
+                f'''SELECT is_mastered FROM song_skills WHERE song_id IN ({placeholders})''',
+                song_ids
+            ).fetchall()
+            total_skills = len(rows)
+            mastered = len([r for r in rows if r['is_mastered'] == 1])
+
+        practiced_songs = len([s for s in songs if s['practice_count'] > 0])
+        total_practice = sum(s['practice_count'] for s in songs)
+
+        return jsonify({
+            'user': _serialize_user(user),
+            'songs_total': len(songs),
+            'songs_practiced': practiced_songs,
+            'practice_events': total_practice,
+            'skills_total': total_skills,
+            'skills_mastered': mastered
+        })
+
 @app.route('/')
+@login_required
 def index():
     """Main song list page"""
     return render_template('index.html')
 
 @app.route('/admin')
+@admin_required
 def admin():
     """Admin page for managing skills"""
     return render_template('admin.html')
@@ -88,62 +626,69 @@ def admin():
 # ==================== SONGS API ====================
 
 @app.route('/api/songs', methods=['GET'])
+@login_required
 def get_songs():
-    """Get all songs with their skills, optionally filtered by repertoire"""
+    """Get all songs for the scoped user, optionally filtered by repertoire"""
     repertoire_id = request.args.get('repertoire_id', type=int)
-    
+    requested_user_id = request.args.get('user_id', type=int)
+    scope_user_id = _resolve_scope_user_id(requested_user_id)
+
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        # Get songs, optionally filtered by repertoire
+
         if repertoire_id:
-            songs = cursor.execute('''
-                SELECT * FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC
-            ''', (repertoire_id,)).fetchall()
+            _require_repertoire(cursor, repertoire_id, scope_user_id)
+            songs = cursor.execute(
+                '''SELECT * FROM songs WHERE user_id = ? AND repertoire_id = ? ORDER BY song_number ASC''',
+                (scope_user_id, repertoire_id)
+            ).fetchall()
         else:
-            songs = cursor.execute('''
-                SELECT * FROM songs ORDER BY repertoire_id, song_number ASC
-            ''').fetchall()
-        
+            songs = cursor.execute(
+                '''SELECT * FROM songs WHERE user_id = ? ORDER BY repertoire_id, song_number ASC''',
+                (scope_user_id,)
+            ).fetchall()
+
         songs_list = []
         for song in songs:
-            # Get skills for this song
             skills = cursor.execute('''
                 SELECT s.id, s.name, ss.is_mastered
                 FROM skills s
                 LEFT JOIN song_skills ss ON s.id = ss.skill_id AND ss.song_id = ?
                 ORDER BY s.id
             ''', (song['id'],)).fetchall()
-            
+
             song_dict = dict(song)
             song_dict['skills'] = [dict(skill) for skill in skills]
-            
-            # Calculate progress percentage
+
             total_skills = len([s for s in skills if s['is_mastered'] is not None])
             mastered_skills = len([s for s in skills if s['is_mastered'] == 1])
             song_dict['skills_progress'] = (mastered_skills / total_skills * 100) if total_skills > 0 else 0
             song_dict['practice_progress'] = (song['practice_count'] / song['practice_target'] * 100) if song['practice_target'] > 0 else 0
-            
+
             songs_list.append(song_dict)
-        
+
         return jsonify(songs_list)
 
 @app.route('/api/songs', methods=['POST'])
+@login_required
 def create_song():
     """Create a new song"""
-    data = request.json
-    
+    data = request.json or {}
+
     with get_db() as conn:
         cursor = conn.cursor()
-        
+        repertoire = _require_repertoire(cursor, data.get('repertoire_id'), g.current_user['id'])
+        user_id = repertoire['user_id']
+
         cursor.execute('''
-            INSERT INTO songs (title, artist, song_number, repertoire_id, priority, practice_target, date_added, release_date, notes, performance_hints)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO songs (title, artist, song_number, repertoire_id, user_id, priority, practice_target, date_added, release_date, notes, performance_hints)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['title'],
             data['artist'],
             data.get('song_number', 1),
-            data['repertoire_id'],
+            repertoire['id'],
+            user_id,
             data.get('priority', 'mid'),
             data.get('practice_target', 0),
             datetime.now().isoformat(),
@@ -151,71 +696,54 @@ def create_song():
             data.get('notes', ''),
             data.get('performance_hints', '')
         ))
-        
+
         song_id = cursor.lastrowid
-        
-        # Add selected skills for this song
+
         if 'skill_ids' in data:
             for skill_id in data['skill_ids']:
-                cursor.execute('''
-                    INSERT INTO song_skills (song_id, skill_id, is_mastered)
-                    VALUES (?, ?, 0)
-                ''', (song_id, skill_id))
-        
+                cursor.execute(
+                    'INSERT INTO song_skills (song_id, skill_id, is_mastered) VALUES (?, ?, 0)',
+                    (song_id, skill_id)
+                )
+
         return jsonify({'id': song_id, 'message': 'Song created successfully'}), 201
 
 @app.route('/api/songs/<int:song_id>', methods=['PUT'])
+@login_required
 def update_song(song_id):
     """Update a song"""
-    data = request.json
-    
+    data = request.json or {}
+
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        # Get current song_number before update
-        old_song = cursor.execute('SELECT song_number, repertoire_id FROM songs WHERE id = ?', (song_id,)).fetchone()
-        if not old_song:
-            return jsonify({'error': 'Song not found'}), 404
-        
-        old_number = old_song['song_number']
-        # Accept new_number; if missing or invalid fallback to old_number
+
+        song_row = _require_song(cursor, song_id, g.current_user['id'])
+        old_number = song_row['song_number']
+        repertoire_id = song_row['repertoire_id']
+
         new_number = data.get('song_number', old_number)
         if not isinstance(new_number, int):
             try:
                 new_number = int(new_number)
             except Exception:
                 new_number = old_number
-        # Use existing repertoire_id (ignore changes via edit form to avoid cross-repertoire side-effects)
-        repertoire_id = old_song['repertoire_id']
-        
-        # Reorder other songs if song_number changed (within same repertoire)
+
         if old_number != new_number:
-            # Build canonical new order list using two-phase update to avoid UNIQUE conflicts
             rows = cursor.execute(
                 'SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC, id ASC',
                 (repertoire_id,)
             ).fetchall()
-            ids = [r['id'] for r in rows]
-            # Remove the target song id
-            ids = [sid for sid in ids if sid != song_id]
-            # Clamp to bounds 1..N
+            ids = [r['id'] for r in rows if r['id'] != song_id]
             max_count = len(ids) + 1
-            if new_number < 1:
-                new_number = 1
-            if new_number > max_count:
-                new_number = max_count
-            # Insert target at desired position (new_number is 1-based)
+            new_number = max(1, min(new_number, max_count))
             ids.insert(new_number - 1, song_id)
 
-            # Phase 1: assign high temporary numbers to avoid UNIQUE collisions
             base = 100000
             for i, sid in enumerate(ids, start=1):
                 cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (base + i, sid))
-            # Phase 2: normalize to 1..N
             for i, sid in enumerate(ids, start=1):
                 cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, sid))
-        
-        # Update the song itself
+
         cursor.execute('''
             UPDATE songs
             SET title = ?, artist = ?, song_number = ?, priority = ?, 
@@ -232,137 +760,133 @@ def update_song(song_id):
             data.get('performance_hints', ''),
             song_id
         ))
-        
-        # Update skills for this song
+
         if 'skill_ids' in data:
-            # Get current skills to preserve mastery status
-            current_skills = cursor.execute('''
-                SELECT skill_id, is_mastered FROM song_skills WHERE song_id = ?
-            ''', (song_id,)).fetchall()
+            current_skills = cursor.execute(
+                'SELECT skill_id, is_mastered FROM song_skills WHERE song_id = ?',
+                (song_id,)
+            ).fetchall()
             current_skills_dict = {row['skill_id']: row['is_mastered'] for row in current_skills}
-            
-            # Remove skills no longer selected
+
             selected_ids = set(data['skill_ids'])
             cursor.execute('DELETE FROM song_skills WHERE song_id = ? AND skill_id NOT IN ({})'.format(
                 ','.join('?' * len(selected_ids)) if selected_ids else 'NULL'
             ), [song_id] + list(selected_ids) if selected_ids else [song_id])
-            
-            # Add new skills (preserve mastery for existing ones)
+
             for skill_id in selected_ids:
                 is_mastered = current_skills_dict.get(skill_id, 0)
-                cursor.execute('''
-                    INSERT OR REPLACE INTO song_skills (song_id, skill_id, is_mastered)
-                    VALUES (?, ?, ?)
-                ''', (song_id, skill_id, is_mastered))
-        
+                cursor.execute(
+                    'INSERT OR REPLACE INTO song_skills (song_id, skill_id, is_mastered) VALUES (?, ?, ?)',
+                    (song_id, skill_id, is_mastered)
+                )
+
         return jsonify({'message': 'Song updated successfully'})
 
 @app.route('/api/songs/<int:song_id>', methods=['DELETE'])
+@login_required
 def delete_song(song_id):
     """Delete a song"""
     with get_db() as conn:
         cursor = conn.cursor()
+        _require_song(cursor, song_id, g.current_user['id'])
         cursor.execute('DELETE FROM songs WHERE id = ?', (song_id,))
-        
+
         return jsonify({'message': 'Song deleted successfully'})
 
 # ==================== PRACTICE API ====================
 
 @app.route('/api/songs/<int:song_id>/practice', methods=['POST'])
+@login_required
 def practice_song(song_id):
     """Mark a song as practiced (increment counter and update last practiced)"""
     with get_db() as conn:
         cursor = conn.cursor()
-        
+        _require_song(cursor, song_id, g.current_user['id'])
+
         now = datetime.now().isoformat()
-        
-        # Update practice count and last practiced date
-        cursor.execute('''
-            UPDATE songs
-            SET practice_count = practice_count + 1,
-                last_practiced = ?
-            WHERE id = ?
-        ''', (now, song_id))
-        
-        # Record practice session
-        cursor.execute('''
-            INSERT INTO practice_sessions (song_id, practiced_at)
-            VALUES (?, ?)
-        ''', (song_id, now))
-        
+
+        cursor.execute(
+            'UPDATE songs SET practice_count = practice_count + 1, last_practiced = ? WHERE id = ?',
+            (now, song_id)
+        )
+
+        cursor.execute(
+            'INSERT INTO practice_sessions (song_id, practiced_at) VALUES (?, ?)',
+            (song_id, now)
+        )
+
         return jsonify({'message': 'Practice recorded successfully'})
 
 @app.route('/api/songs/<int:song_id>/target/increase', methods=['POST'])
+@login_required
 def increase_target(song_id):
     """Increase practice target by current practice count to reset progress bar while keeping history."""
     with get_db() as conn:
         cursor = conn.cursor()
-        
+        _require_song(cursor, song_id, g.current_user['id'])
+
         result = cursor.execute(
             'SELECT practice_count, practice_target FROM songs WHERE id = ?',
             (song_id,)
         ).fetchone()
-        
+
         if not result:
             return jsonify({'error': 'Song not found'}), 404
-        
-        # New target = current target + current count (resets progress bar to 0%)
+
         new_target = result['practice_target'] + result['practice_count']
-        
-        cursor.execute(
-            'UPDATE songs SET practice_target = ? WHERE id = ?',
-            (new_target, song_id)
-        )
-        
+
+        cursor.execute('UPDATE songs SET practice_target = ? WHERE id = ?', (new_target, song_id))
+
         return jsonify({'message': 'Target increased', 'new_target': new_target})
 
 @app.route('/api/songs/<int:song_id>/skills/<int:skill_id>/toggle', methods=['POST'])
+@login_required
 def toggle_skill(song_id, skill_id):
     """Toggle skill mastery status"""
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        # Check if song_skill exists
-        result = cursor.execute('''
-            SELECT is_mastered FROM song_skills
-            WHERE song_id = ? AND skill_id = ?
-        ''', (song_id, skill_id)).fetchone()
-        
+        _require_song(cursor, song_id, g.current_user['id'])
+
+        result = cursor.execute(
+            'SELECT is_mastered FROM song_skills WHERE song_id = ? AND skill_id = ?',
+            (song_id, skill_id)
+        ).fetchone()
+
         if result is None:
             return jsonify({'error': 'Skill not assigned to this song'}), 404
-        
-        # Toggle the mastery status
+
         new_status = 0 if result['is_mastered'] == 1 else 1
-        
-        cursor.execute('''
-            UPDATE song_skills
-            SET is_mastered = ?
-            WHERE song_id = ? AND skill_id = ?
-        ''', (new_status, song_id, skill_id))
-        
+
+        cursor.execute(
+            'UPDATE song_skills SET is_mastered = ? WHERE song_id = ? AND skill_id = ?',
+            (new_status, song_id, skill_id)
+        )
+
         return jsonify({'is_mastered': new_status})
 
 @app.route('/api/songs/<int:song_id>/priority/toggle', methods=['POST'])
+@login_required
 def toggle_priority(song_id):
     """Toggle priority: mid -> high -> low -> mid"""
     with get_db() as conn:
         cursor = conn.cursor()
-        
+        _require_song(cursor, song_id, g.current_user['id'])
+
         result = cursor.execute('SELECT priority FROM songs WHERE id = ?', (song_id,)).fetchone()
         if not result:
             return jsonify({'error': 'Song not found'}), 404
-        
-        # Cycle: mid -> high -> low -> mid
+
         priority_cycle = {'mid': 'high', 'high': 'low', 'low': 'mid'}
         new_priority = priority_cycle.get(result['priority'], 'mid')
-        
+
         cursor.execute('UPDATE songs SET priority = ? WHERE id = ?', (new_priority, song_id))
-        
+
         return jsonify({'priority': new_priority})
 
 # ==================== ORDERING API ====================
 
 @app.route('/api/songs/reorder', methods=['POST'])
+@login_required
 def reorder_songs():
     """Reorder songs by array of song IDs in desired order; song_number becomes 1..N within repertoire."""
     data = request.json or {}
@@ -374,27 +898,33 @@ def reorder_songs():
 
     with get_db() as conn:
         cursor = conn.cursor()
-        # Get existing songs in this repertoire
+        scope_user_id = g.current_user['id']
+
         if repertoire_id:
+            _require_repertoire(cursor, repertoire_id, scope_user_id)
             existing = cursor.execute(
-                'SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC, id ASC',
-                (repertoire_id,)
+                'SELECT id FROM songs WHERE repertoire_id = ? AND user_id = ? ORDER BY song_number ASC, id ASC',
+                (repertoire_id, scope_user_id)
             ).fetchall()
         else:
-            existing = cursor.execute('SELECT id FROM songs ORDER BY song_number ASC, id ASC').fetchall()
+            existing = cursor.execute(
+                'SELECT id FROM songs WHERE user_id = ? ORDER BY song_number ASC, id ASC',
+                (scope_user_id,)
+            ).fetchall()
         
         existing_ids = [row['id'] for row in existing]
+        if not existing_ids:
+            return jsonify({'error': 'No songs available to reorder'}), 400
 
-        # If client sent subset, append remaining in current order
         seen = set(ordered_ids)
         remaining = [sid for sid in existing_ids if sid not in seen]
         full_order = ordered_ids + remaining
 
-        # Two-phase renumber to avoid UNIQUE conflicts: phase 1 assign high temp numbers
         base = 100000
         for i, sid in enumerate(full_order, start=1):
+            if sid not in existing_ids:
+                return jsonify({'error': 'Invalid song id in ordered_ids'}), 400
             cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (base + i, sid))
-        # Phase 2 normalize to 1..N
         for i, sid in enumerate(full_order, start=1):
             cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, sid))
 
@@ -412,21 +942,18 @@ def windows_path_to_wsl(win_path):
     return wsl_path
 
 @app.route('/media/<int:song_id>')
+@login_required
 def media(song_id):
     """Serve the linked audio file for a song, if present."""
     with get_db() as conn:
         cur = conn.cursor()
-        row = cur.execute('SELECT audio_path, title FROM songs WHERE id = ?', (song_id,)).fetchone()
-        if not row:
-            abort(404)
-        path = row['audio_path']
+        song = _require_song(cur, song_id, g.current_user['id'])
+        path = song['audio_path']
         if not path:
             abort(404)
-        # Convert Windows path to WSL if needed
         wsl_path = windows_path_to_wsl(path)
         if not os.path.isfile(wsl_path):
             abort(404)
-        # Force download with Content-Disposition header to trigger "Open with" dialog
         with open(wsl_path, 'rb') as f:
             data = f.read()
         response = Response(data, mimetype='audio/mpeg')
@@ -434,23 +961,22 @@ def media(song_id):
         return response
 
 @app.route('/chart/<int:song_id>')
+@login_required
 def chart(song_id):
     """Serve the linked chart file for a song, if present."""
     with get_db() as conn:
         cur = conn.cursor()
-        row = cur.execute('SELECT chart_path, title FROM songs WHERE id = ?', (song_id,)).fetchone()
-        if not row:
-            abort(404)
-        path = row['chart_path']
+        song = _require_song(cur, song_id, g.current_user['id'])
+        path = song['chart_path']
         if not path:
             abort(404)
-        # Convert Windows path to WSL if needed
         wsl_path = windows_path_to_wsl(path)
         if not os.path.isfile(wsl_path):
             abort(404)
         return send_file(wsl_path, as_attachment=False, download_name=os.path.basename(path))
 
 @app.route('/api/songs/<int:song_id>/audio', methods=['POST', 'DELETE'])
+@login_required
 def manage_audio(song_id):
     """Attach or remove audio for a song.
     POST with JSON field 'file_path' to link to existing file.
@@ -458,9 +984,7 @@ def manage_audio(song_id):
     """
     with get_db() as conn:
         cur = conn.cursor()
-        exist = cur.execute('SELECT id, audio_path FROM songs WHERE id = ?', (song_id,)).fetchone()
-        if not exist:
-            return jsonify({'error': 'Song not found'}), 404
+        exist = _require_song(cur, song_id, g.current_user['id'])
 
         if request.method == 'DELETE':
             cur.execute('UPDATE songs SET audio_path = NULL WHERE id = ?', (song_id,))
@@ -486,6 +1010,7 @@ def manage_audio(song_id):
         return jsonify({'message': 'Audio linked', 'audio_path': file_path})
 
 @app.route('/api/songs/<int:song_id>/chart', methods=['POST', 'DELETE'])
+@login_required
 def manage_chart(song_id):
     """Attach or remove chart for a song.
     POST with JSON field 'file_path' to link to existing file.
@@ -493,9 +1018,7 @@ def manage_chart(song_id):
     """
     with get_db() as conn:
         cur = conn.cursor()
-        exist = cur.execute('SELECT id, chart_path FROM songs WHERE id = ?', (song_id,)).fetchone()
-        if not exist:
-            return jsonify({'error': 'Song not found'}), 404
+        exist = _require_song(cur, song_id, g.current_user['id'])
 
         if request.method == 'DELETE':
             cur.execute('UPDATE songs SET chart_path = NULL WHERE id = ?', (song_id,))
@@ -523,38 +1046,41 @@ def manage_chart(song_id):
 # ==================== SKILLS API ====================
 
 @app.route('/api/skills', methods=['GET'])
+@login_required
 def get_skills():
     """Get all skills"""
     with get_db() as conn:
         cursor = conn.cursor()
         skills = cursor.execute('SELECT * FROM skills ORDER BY id').fetchall()
-        
+
         return jsonify([dict(skill) for skill in skills])
 
 @app.route('/api/skills', methods=['POST'])
+@admin_required
 def create_skill():
     """Create a new skill"""
-    data = request.json
-    
+    data = request.json or {}
+
     with get_db() as conn:
         cursor = conn.cursor()
-        
+
         try:
             cursor.execute('INSERT INTO skills (name) VALUES (?)', (data['name'],))
             skill_id = cursor.lastrowid
-            
+
             return jsonify({'id': skill_id, 'message': 'Skill created successfully'}), 201
         except sqlite3.IntegrityError:
             return jsonify({'error': 'Skill already exists'}), 400
 
 @app.route('/api/skills/<int:skill_id>', methods=['PUT'])
+@admin_required
 def update_skill(skill_id):
     """Update a skill"""
-    data = request.json
-    
+    data = request.json or {}
+
     with get_db() as conn:
         cursor = conn.cursor()
-        
+
         try:
             cursor.execute('UPDATE skills SET name = ? WHERE id = ?', (data['name'], skill_id))
             return jsonify({'message': 'Skill updated successfully'})
@@ -562,29 +1088,36 @@ def update_skill(skill_id):
             return jsonify({'error': 'Skill name already exists'}), 400
 
 @app.route('/api/skills/<int:skill_id>', methods=['DELETE'])
+@admin_required
 def delete_skill(skill_id):
     """Delete a skill"""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('DELETE FROM skills WHERE id = ?', (skill_id,))
-        
+
         return jsonify({'message': 'Skill deleted successfully'})
 
 # ==================== REPERTOIRES API ====================
 
 @app.route('/api/repertoires', methods=['GET'])
+@login_required
 def get_repertoires():
-    """Get all repertoires with their default skills"""
+    """Get all repertoires with their default skills for the scoped user"""
+    requested_user_id = request.args.get('user_id', type=int)
+    scope_user_id = _resolve_scope_user_id(requested_user_id)
+
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        repertoires = cursor.execute('SELECT * FROM repertoires ORDER BY COALESCE(sort_order, id), id').fetchall()
+
+        repertoires = cursor.execute(
+            'SELECT * FROM repertoires WHERE user_id = ? ORDER BY COALESCE(sort_order, id), id',
+            (scope_user_id,)
+        ).fetchall()
         repertoires_list = []
-        
+
         for rep in repertoires:
             rep_dict = dict(rep)
-            
-            # Get default skills for this repertoire
+
             skills = cursor.execute('''
                 SELECT s.id, s.name
                 FROM skills s
@@ -592,63 +1125,62 @@ def get_repertoires():
                 WHERE rs.repertoire_id = ?
                 ORDER BY s.id
             ''', (rep['id'],)).fetchall()
-            
+
             rep_dict['default_skills'] = [dict(skill) for skill in skills]
-            
-            # Get song count
+
             song_count = cursor.execute(
-                'SELECT COUNT(*) as count FROM songs WHERE repertoire_id = ?',
-                (rep['id'],)
+                'SELECT COUNT(*) as count FROM songs WHERE repertoire_id = ? AND user_id = ?',
+                (rep['id'], scope_user_id)
             ).fetchone()
             rep_dict['song_count'] = song_count['count']
-            # Include notes from the repertoire
             rep_dict['notes'] = rep['notes'] or ''
-            
+
             repertoires_list.append(rep_dict)
-        
+
         return jsonify(repertoires_list)
 
 @app.route('/api/repertoires', methods=['POST'])
+@login_required
 def create_repertoire():
     """Create a new repertoire"""
-    data = request.json
-    
+    data = request.json or {}
+    target_user_id = _resolve_scope_user_id(data.get('user_id', None))
+
     with get_db() as conn:
         cursor = conn.cursor()
-        
+
         try:
+            sort_max = cursor.execute(
+                'SELECT COALESCE(MAX(sort_order), 0) as max_order FROM repertoires WHERE user_id = ?',
+                (target_user_id,)
+            ).fetchone()['max_order']
+
             cursor.execute(
-                'INSERT INTO repertoires (name, date_created) VALUES (?, ?)',
-                (data['name'], datetime.now().isoformat())
+                'INSERT INTO repertoires (name, date_created, user_id, sort_order) VALUES (?, ?, ?, ?)',
+                (data['name'], datetime.now().isoformat(), target_user_id, sort_max + 1)
             )
             repertoire_id = cursor.lastrowid
-            
-            # Add default skills if provided
+
             if 'skill_ids' in data:
                 for skill_id in data['skill_ids']:
                     cursor.execute(
                         'INSERT INTO repertoire_skills (repertoire_id, skill_id) VALUES (?, ?)',
                         (repertoire_id, skill_id)
                     )
-            
+
             return jsonify({'id': repertoire_id, 'message': 'Repertoire created successfully'}), 201
         except sqlite3.IntegrityError:
             return jsonify({'error': 'Repertoire name already exists'}), 400
 
 @app.route('/api/repertoires/<int:repertoire_id>', methods=['PUT'])
+@login_required
 def update_repertoire(repertoire_id):
     """Update a repertoire's name, folder paths, and default skills"""
-    data = request.json
-    
+    data = request.json or {}
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        # Check if repertoire exists
-        rep = cursor.execute('SELECT id FROM repertoires WHERE id = ?', (repertoire_id,)).fetchone()
-        if not rep:
-            return jsonify({'error': 'Repertoire not found'}), 404
-        
-        # Update name
+        rep = _require_repertoire(cursor, repertoire_id, g.current_user['id'])
+
         if 'name' in data:
             try:
                 cursor.execute(
@@ -657,15 +1189,13 @@ def update_repertoire(repertoire_id):
                 )
             except sqlite3.IntegrityError:
                 return jsonify({'error': 'Repertoire name already exists'}), 400
-        
-        # Update notes
+
         if 'notes' in data:
             cursor.execute(
                 'UPDATE repertoires SET notes = ? WHERE id = ?',
                 (data['notes'] or None, repertoire_id)
             )
-        
-        # Update folder paths
+
         if 'songlist_folder' in data:
             cursor.execute(
                 'UPDATE repertoires SET songlist_folder = ? WHERE id = ?',
@@ -681,45 +1211,40 @@ def update_repertoire(repertoire_id):
                 'UPDATE repertoires SET sheet_folder = ? WHERE id = ?',
                 (data['sheet_folder'] or None, repertoire_id)
             )
-        
-        # Update default skills
+
         if 'skill_ids' in data:
-            # Remove all current default skills
             cursor.execute('DELETE FROM repertoire_skills WHERE repertoire_id = ?', (repertoire_id,))
-            
-            # Add new default skills
             for skill_id in data['skill_ids']:
                 cursor.execute(
                     'INSERT INTO repertoire_skills (repertoire_id, skill_id) VALUES (?, ?)',
                     (repertoire_id, skill_id)
                 )
-        
+
         return jsonify({'message': 'Repertoire updated successfully'})
 
 @app.route('/api/repertoires/<int:repertoire_id>', methods=['DELETE'])
+@login_required
 def delete_repertoire(repertoire_id):
     """Delete a repertoire and cascade delete all songs in it"""
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        # Get song count for confirmation message (already shown on frontend)
+        _require_repertoire(cursor, repertoire_id, g.current_user['id'])
+
         song_count = cursor.execute(
             'SELECT COUNT(*) as count FROM songs WHERE repertoire_id = ?',
             (repertoire_id,)
         ).fetchone()
-        
-        # Delete all songs in this repertoire first (cascade)
+
         cursor.execute('DELETE FROM songs WHERE repertoire_id = ?', (repertoire_id,))
-        
-        # Delete the repertoire itself
         cursor.execute('DELETE FROM repertoires WHERE id = ?', (repertoire_id,))
-        
+
         return jsonify({
             'message': 'Repertoire deleted successfully',
             'songs_deleted': song_count['count']
         })
 
 @app.route('/api/repertoires/reorder', methods=['POST'])
+@login_required
 def reorder_repertoires():
     """Persist a new ordering of repertoires given an array of repertoire IDs."""
     data = request.json or {}
@@ -729,8 +1254,8 @@ def reorder_repertoires():
 
     with get_db() as conn:
         cursor = conn.cursor()
-        # Validate all IDs exist
-        existing_ids = {row['id'] for row in cursor.execute('SELECT id FROM repertoires').fetchall()}
+        scope_user_id = g.current_user['id']
+        existing_ids = {row['id'] for row in cursor.execute('SELECT id FROM repertoires WHERE user_id = ?', (scope_user_id,)).fetchall()}
         if set(order) - existing_ids:
             return jsonify({'error': 'Unknown repertoire id(s) in order'}), 400
 
@@ -740,19 +1265,13 @@ def reorder_repertoires():
     return jsonify({'message': 'Repertoires reordered successfully'})
 
 @app.route('/api/repertoires/<int:repertoire_id>/sync', methods=['POST'])
+@login_required
 def sync_repertoire_folders(repertoire_id):
     """Scan MP3 folder, create songs from filenames, then link MP3s and sheets"""
     with get_db() as conn:
         cursor = conn.cursor()
         
-        # Get repertoire with folder paths
-        rep = cursor.execute(
-            'SELECT * FROM repertoires WHERE id = ?',
-            (repertoire_id,)
-        ).fetchone()
-        
-        if not rep:
-            return jsonify({'error': 'Repertoire not found'}), 404
+        rep = _require_repertoire(cursor, repertoire_id, g.current_user['id'])
         
         # Delete previous sync history for this repertoire
         cursor.execute('DELETE FROM sync_history WHERE repertoire_id = ?', (repertoire_id,))
@@ -855,11 +1374,11 @@ def sync_repertoire_folders(repertoire_id):
                         # Create new song with MP3 linked
                         cursor.execute('''
                             INSERT INTO songs (
-                                title, artist, song_number, repertoire_id,
+                                title, artist, song_number, repertoire_id, user_id,
                                 priority, practice_count, practice_target, date_added, audio_path, release_date
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (
-                            title, artist, max_num + 1, repertoire_id,
+                            title, artist, max_num + 1, repertoire_id, rep['user_id'],
                             'mid', 0, 5, datetime.now().isoformat(), mp3_path, release_year
                         ))
                         
@@ -999,19 +1518,12 @@ def sync_repertoire_folders(repertoire_id):
         return jsonify(stats)
 
 @app.route('/api/repertoires/<int:repertoire_id>/undo-sync', methods=['POST'])
+@login_required
 def undo_sync_repertoire(repertoire_id):
     """Undo the last sync operation for a repertoire"""
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        # Get repertoire
-        rep = cursor.execute(
-            'SELECT * FROM repertoires WHERE id = ?',
-            (repertoire_id,)
-        ).fetchone()
-        
-        if not rep:
-            return jsonify({'error': 'Repertoire not found'}), 404
+        rep = _require_repertoire(cursor, repertoire_id, g.current_user['id'])
         
         # Get sync history for this repertoire
         history = cursor.execute(
@@ -1057,6 +1569,7 @@ def undo_sync_repertoire(repertoire_id):
         return jsonify(stats)
 
 @app.route('/api/songs/lookup', methods=['POST'])
+@login_required
 def lookup_song_metadata():
     """Look up song metadata (artist, release date) from MusicBrainz"""
     data = request.json
@@ -1111,6 +1624,7 @@ def lookup_song_metadata():
         return jsonify({'error': str(e), 'found': False}), 500
 
 @app.route('/api/repertoires/<int:repertoire_id>/setlist-pdf', methods=['POST'])
+@login_required
 def generate_setlist_pdf(repertoire_id):
     """Generate a PDF setlist for a repertoire"""
     data = request.json
@@ -1121,11 +1635,11 @@ def generate_setlist_pdf(repertoire_id):
         
         # Get repertoire info
         repertoire = cursor.execute(
-            'SELECT name FROM repertoires WHERE id = ?',
+            'SELECT name, user_id FROM repertoires WHERE id = ?',
             (repertoire_id,)
         ).fetchone()
         
-        if not repertoire:
+        if not repertoire or (g.current_user['role'] != 'admin' and repertoire['user_id'] != g.current_user['id']):
             return jsonify({'error': 'Repertoire not found'}), 404
         
         # Get songs up to max_song_number

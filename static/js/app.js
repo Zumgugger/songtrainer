@@ -13,10 +13,51 @@ let searchQuery = '';
 let currentAttachSongId = null;
 let currentAttachChartId = null;
 let focusMode = false;
+let currentUser = null;
+
+// Redirect to login on 401 for any fetch
+const originalFetch = window.fetch;
+window.fetch = async (...args) => {
+    const res = await originalFetch(...args);
+    if (res.status === 401) {
+        window.location = '/login?next=' + encodeURIComponent(window.location.pathname);
+        throw new Error('Unauthorized');
+    }
+    return res;
+};
+
+async function loadCurrentUser() {
+    try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        currentUser = data.user;
+        const emailEl = document.getElementById('userEmail');
+        if (emailEl && currentUser) {
+            emailEl.textContent = currentUser.email;
+        }
+        const adminLink = document.getElementById('adminLink');
+        if (adminLink) {
+            adminLink.style.display = currentUser && currentUser.role === 'admin' ? 'inline-block' : 'none';
+        }
+    } catch (err) {
+        currentUser = null;
+    }
+}
 
 // ==================== INITIALIZATION ====================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadCurrentUser();
+    if (!currentUser) return; // loadCurrentUser will redirect on 401
+
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            window.location = '/login';
+        });
+    }
+
     loadSkills();
     loadRepertoires();
     
