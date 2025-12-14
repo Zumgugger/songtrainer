@@ -793,7 +793,7 @@ function updateProgressDetails() {
         practiceBar.style.width = practicePercentage + '%';
         practiceBar.textContent = practicePercentage + '%';
         practiceBar.className = 'progress-bar' + (practicePercentage >= 100 ? ' complete' : '');
-        practiceText.textContent = `${totalPracticeCount} / ${totalPracticeTarget} practice sessions completed`;
+        practiceText.textContent = `${totalPracticeCount} / ${totalPracticeTarget} songs practiced`;
     }
     
     // Calculate per-skill progress
@@ -1057,10 +1057,13 @@ function renderRepertoireTabs() {
     tabsContainer.innerHTML = repertoires.map(rep => `
         <div class="tab ${rep.id === currentRepertoireId ? 'active' : ''}" 
              data-repid="${rep.id}" draggable="true">
-            <span class="tab-name" onclick="switchRepertoire(${rep.id})">${rep.name}</span>
-            <span class="tab-count" onclick="switchRepertoire(${rep.id})">${rep.song_count}</span>
-            <button class="tab-edit-btn" onclick="event.stopPropagation(); editRepertoire(${rep.id})" title="Edit repertoire">✏️</button>
-            <span class="drag-hint" style="cursor:grab; font-size:10px; color:#7f8c8d;">⇅</span>
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <span class="tab-name" onclick="switchRepertoire(${rep.id})" style="flex: 1;">${rep.name}</span>
+                <span class="tab-count" onclick="switchRepertoire(${rep.id})">${rep.song_count}</span>
+                <button class="tab-edit-btn" onclick="event.stopPropagation(); editRepertoire(${rep.id})" title="Edit repertoire">✏️</button>
+                <button class="tab-notes-btn" onclick="event.stopPropagation(); openRepertoireNotesModal(${rep.id})" title="View/edit repertoire notes" style="padding: 2px 6px; font-size: 0.8rem; background-color: #95a5a6; border: 1px solid #7f8c8d; border-radius: 3px; cursor: pointer; color: white;">📝</button>
+                <span class="drag-hint" style="cursor:grab; font-size:10px; color:#7f8c8d;">⇅</span>
+            </div>
         </div>
     `).join('');
 
@@ -1114,6 +1117,67 @@ function switchRepertoire(repertoireId) {
     currentRepertoireId = repertoireId;
     renderRepertoireTabs();
     loadSongs();
+}
+
+function openRepertoireNotesModal(repertoireId) {
+    // Find the repertoire
+    const repertoire = repertoires.find(r => r.id === repertoireId);
+    if (!repertoire) {
+        alert('Repertoire not found');
+        return;
+    }
+
+    // Create modal HTML
+    const modalHTML = `
+        <div id="notesModal" class="modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+            <div class="modal-content" style="background: white; border-radius: 8px; padding: 20px; max-width: 600px; width: 90%; max-height: 80vh; overflow: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0;">Repertoire Notes: ${repertoire.name}</h2>
+                    <button onclick="document.getElementById('notesModal').remove();" style="background: none; border: none; font-size: 1.5rem; cursor: pointer;">✕</button>
+                </div>
+                <form id="notesForm" style="display: flex; flex-direction: column; gap: 10px;">
+                    <textarea id="notesText" placeholder="Add notes about this repertoire (focus areas, learning goals, etc.)" style="width: 100%; min-height: 200px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: Arial, sans-serif; font-size: 14px;">${repertoire.notes || ''}</textarea>
+                    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" onclick="document.getElementById('notesModal').remove();" style="padding: 8px 16px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+                        <button type="submit" style="padding: 8px 16px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">Save Notes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+
+    // Insert modal into DOM
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    // Handle form submission
+    document.getElementById('notesForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const notes = document.getElementById('notesText').value;
+
+        try {
+            const response = await fetch(`/api/repertoires/${repertoireId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ notes: notes })
+            });
+
+            if (response.ok) {
+                // Update local repertoires array
+                const rep = repertoires.find(r => r.id === repertoireId);
+                if (rep) {
+                    rep.notes = notes;
+                }
+                alert('Notes saved!');
+                document.getElementById('notesModal').remove();
+            } else {
+                const error = await response.json();
+                alert(`Error saving notes: ${error.error || 'Unknown error'}`);
+            }
+        } catch (err) {
+            console.error('Error saving notes:', err);
+            alert('Error saving notes');
+        }
+    });
 }
 
 function openRepertoireModal(repertoire = null) {

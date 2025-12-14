@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file, abort, Response
 from werkzeug.utils import secure_filename
-from database import get_db, init_db, ensure_indexes_and_normalize, ensure_audio_path_column, ensure_chart_path_column, ensure_repertoire_id_column, ensure_release_date_column, ensure_repertoire_sort_order_column, ensure_repertoire_folder_columns, ensure_sync_history_table
+from database import get_db, init_db, ensure_indexes_and_normalize, ensure_audio_path_column, ensure_chart_path_column, ensure_repertoire_id_column, ensure_release_date_column, ensure_repertoire_sort_order_column, ensure_repertoire_folder_columns, ensure_sync_history_table, ensure_repertoire_notes_column
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -62,6 +62,10 @@ else:
         pass
     try:
         ensure_sync_history_table()
+    except Exception:
+        pass
+    try:
+        ensure_repertoire_notes_column()
     except Exception:
         pass
     try:
@@ -597,6 +601,8 @@ def get_repertoires():
                 (rep['id'],)
             ).fetchone()
             rep_dict['song_count'] = song_count['count']
+            # Include notes from the repertoire
+            rep_dict['notes'] = rep['notes'] or ''
             
             repertoires_list.append(rep_dict)
         
@@ -651,6 +657,13 @@ def update_repertoire(repertoire_id):
                 )
             except sqlite3.IntegrityError:
                 return jsonify({'error': 'Repertoire name already exists'}), 400
+        
+        # Update notes
+        if 'notes' in data:
+            cursor.execute(
+                'UPDATE repertoires SET notes = ? WHERE id = ?',
+                (data['notes'] or None, repertoire_id)
+            )
         
         # Update folder paths
         if 'songlist_folder' in data:

@@ -301,4 +301,16 @@ if __name__ == '__main__':
     ensure_indexes_and_normalize()
     ensure_repertoire_folder_columns()
     ensure_performance_hints_column()
+    ensure_repertoire_notes_column()
     ensure_sync_history_table()
+
+def ensure_repertoire_notes_column():
+    """Ensure repertoires table has notes column for storing repertoire-specific notes."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(repertoires)').fetchall()
+        colnames = {c['name'] for c in cols}
+        
+        if 'notes' not in colnames:
+            cursor.execute('ALTER TABLE repertoires ADD COLUMN notes TEXT')
+            print('Added notes column to repertoires table')

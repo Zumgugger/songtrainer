@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Song Trainer - Practice Tracker</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
+    <style>
+        .tab {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+    </style>
+    </head>
 <body>
     <div class="container">
         <header>
@@ -40,7 +47,7 @@
                     <div class="progress-bar-container">
                         <div id="practiceProgressBar" class="progress-bar">0%</div>
                     </div>
-                    <p id="practiceProgressText" style="margin-top: 5px; font-size: 0.9rem;">0 / 0 practice sessions completed</p>
+                    <p id="practiceProgressText" style="margin-top: 5px; font-size: 0.9rem;">0 / 0 songs practiced</p>
                 </div>
                 
                 <div>
