@@ -4,6 +4,9 @@ A modern, colorful web application to track your song practice progress for conc
 
 ## Features
 
+- 🔐 **User Authentication**: Login/logout with session management and remember-me
+- 👥 **Multi-user Support**: Each user has their own repertoires and songs
+- 🛡️ **Admin Panel**: User management and progress tracking
 - 🎵 Track songs with title, artist, priority, and practice goals
 - ⭐ Master skills for each song (bassline, backing vocals, etc.)
 - 📊 Visual progress bars for practice count and skill mastery
@@ -46,6 +49,21 @@ python app.py
 
 The app will be available at: `http://localhost:5000`
 
+### 4. First Login
+
+On first run, a default admin user is created automatically:
+- **Email**: `admin@example.com`
+- **Password**: `admin123`
+
+**⚠️ Important**: Change the password immediately after first login via the Admin page.
+
+**Custom Admin Credentials**: Set environment variables before first run:
+```bash
+export ADMIN_EMAIL="your-email@example.com"
+export ADMIN_PASSWORD="your-secure-password"
+python app.py
+```
+
 ## Usage
 
 ### Main Page (/)
@@ -64,7 +82,9 @@ The app will be available at: `http://localhost:5000`
 - **View linked files**: Click 🎧 Open audio or 📄 Open chart links
 
 ### Admin Page (/admin)
-- Add custom skills
+- **User Management**: Create, edit, delete users (admin only)
+- **User Progress**: View practice progress for all users
+- **Skills Management**: Add custom skills
 - Edit or delete existing skills
 - Skills are shared across all songs
 
@@ -94,7 +114,10 @@ The scripts intelligently match files to songs by title/artist. For charts, file
 ## Data Persistence
 
 All data is stored in `songs.db` (SQLite database):
-- **songs**: Song details and practice counts
+- **users**: User accounts with authentication
+- **remember_tokens**: Remember-me session tokens
+- **repertoires**: Song collections (scoped per user)
+- **songs**: Song details and practice counts (scoped per user)
 - **skills**: Available skills to master
 - **song_skills**: Which skills are assigned to each song + mastery status
 - **practice_sessions**: History of practice dates
@@ -104,8 +127,16 @@ All data is stored in `songs.db` (SQLite database):
 1. Copy the entire project folder to your server
 2. Install Python 3 and pip
 3. Install dependencies: `pip install -r requirements.txt`
-4. Run with: `python app.py` (or use a production server like Gunicorn)
+4. **Set admin credentials** (optional but recommended):
+   ```bash
+   export ADMIN_EMAIL="your-email@example.com"
+   export ADMIN_PASSWORD="your-secure-password"
+   ```
+5. Initialize database: `python database.py`
+6. Run with: `python app.py` (or use a production server like Gunicorn)
 5. Optional: Set up Nginx as a reverse proxy
+
+**⚠️ Production Security**: Always set custom `ADMIN_EMAIL` and `ADMIN_PASSWORD` environment variables before first deployment!
 
 ### Running with Gunicorn (Production)
 
