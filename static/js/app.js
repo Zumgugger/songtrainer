@@ -12,6 +12,7 @@ let sortReverse = false;
 let searchQuery = '';
 let currentAttachSongId = null;
 let currentAttachChartId = null;
+let focusMode = false;
 
 // ==================== INITIALIZATION ====================
 
@@ -376,6 +377,20 @@ async function togglePriority(songId) {
         }
     } catch (error) {
         console.error('Error toggling priority:', error);
+    }
+}
+
+function toggleFocusMode() {
+    focusMode = !focusMode;
+    const songsList = document.getElementById('songsList');
+    const focusBtn = document.getElementById('focusModeToggle');
+    
+    if (focusMode) {
+        songsList.classList.add('focus-mode');
+        focusBtn.style.opacity = '0.6';
+    } else {
+        songsList.classList.remove('focus-mode');
+        focusBtn.style.opacity = '1';
     }
 }
 

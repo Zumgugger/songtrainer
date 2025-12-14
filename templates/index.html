@@ -11,6 +11,21 @@
             flex-direction: column;
             gap: 6px;
         }
+        
+        /* Focus mode styles */
+        .songs-list.focus-mode .song-card .song-artist,
+        .songs-list.focus-mode .song-card .song-release-date,
+        .songs-list.focus-mode .song-card .last-practiced,
+        .songs-list.focus-mode .song-card .song-actions,
+        .songs-list.focus-mode .song-card .skills-section,
+        .songs-list.focus-mode .song-card .song-audio,
+        .songs-list.focus-mode .song-card .practice-section {
+            display: none;
+        }
+        
+        .songs-list.focus-mode .song-card .song-title-row {
+            margin-bottom: 0;
+        }
     </style>
     </head>
 <body>
@@ -68,6 +83,7 @@
                 <button class="sort-btn" data-sort="last_practiced">Last Practiced</button>
                 <button class="sort-btn" data-sort="release_date">Release Date</button>
                 <button class="sort-btn" data-sort="skills_mastered">Skills Mastered</button>
+                <button id="focusModeToggle" class="focus-toggle-btn" onclick="toggleFocusMode()" title="Toggle focus mode (show/hide details)" style="margin-left: 20px; background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0;">👁️</button>
             </div>
             <div class="search-controls">
                 <input type="text" id="searchInput" placeholder="Search song title..." />
