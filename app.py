@@ -480,7 +480,7 @@ def list_users():
         users = cursor.execute(
             'SELECT id, email, role, created_at, updated_at FROM users ORDER BY id'
         ).fetchall()
-        return jsonify({'users': [_serialize_user(u) | {'created_at': u['created_at'], 'updated_at': u['updated_at']} for u in users]})
+        return jsonify({'users': [dict(_serialize_user(u), created_at=u['created_at'], updated_at=u['updated_at']) for u in users]})
 
 
 @app.route('/api/users', methods=['POST'])
