@@ -88,6 +88,7 @@
                 <button class="sort-btn" data-sort="release_date">Release Date</button>
                 <button class="sort-btn" data-sort="skills_mastered">Skills Mastered</button>
                 <button id="focusModeToggle" class="focus-toggle-btn" onclick="toggleFocusMode()" title="Toggle focus mode (show/hide details)" style="margin-left: 20px; background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0;">👁️</button>
+                <button id="saveOrderBtn" class="focus-toggle-btn" onclick="saveCurrentOrder()" title="Save current visual order as song order" style="background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0; margin-left: 5px;">💾</button>
             </div>
             <div class="search-controls">
                 <input type="text" id="searchInput" placeholder="Search song title..." />
@@ -238,7 +239,7 @@
     <!-- Hidden file input for attaching audio -->
     <input type="file" id="audioFileInput" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg" style="display:none" />
     <!-- Hidden file input for attaching charts -->
-    <input type="file" id="chartFileInput" accept=".pdf,.png,.jpg,.jpeg,.gif,.txt,.doc,.docx" style="display:none" />
+    <input type="file" id="chartFileInput" accept=".pdf,.png,.jpg,.jpeg,.gif,.txt,.doc,.docx,.odt" style="display:none" />
     <!-- Hidden file pickers for extracting folder paths -->
     <input type="file" id="mp3FilePicker" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg" style="display:none" />
     <!-- Hidden directory inputs for repertoire folder selection (legacy, not used) -->

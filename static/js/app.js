@@ -9,6 +9,7 @@ let repertoires = [];
 let currentRepertoireId = null;
 let currentSort = 'song_number';
 let sortReverse = false;
+let sortHistory = []; // Stack of previous sorts for multi-level sorting
 let searchQuery = '';
 let currentAttachSongId = null;
 let currentAttachChartId = null;
@@ -106,6 +107,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (currentSort === newSort) {
                 sortReverse = !sortReverse;
             } else {
+                // Add current sort to history (max 2 levels)
+                if (currentSort && currentSort !== newSort) {
+                    sortHistory = [{ sort: currentSort, reverse: sortReverse }];
+                }
                 sortReverse = false;
                 currentSort = newSort;
             }
@@ -435,6 +440,52 @@ function toggleFocusMode() {
     }
 }
 
+async function saveCurrentOrder() {
+    // Get the current visual order of songs
+    const songCards = document.querySelectorAll('.song-card');
+    const orderedIds = Array.from(songCards).map(card => parseInt(card.getAttribute('data-id')));
+    
+    if (orderedIds.length === 0) {
+        alert('No songs to save order for.');
+        return;
+    }
+    
+    if (!confirm(`Save the current visual order as the permanent song order for ${orderedIds.length} song(s)?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/songs/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                ordered_ids: orderedIds,
+                repertoire_id: currentRepertoireId
+            })
+        });
+        
+        if (response.ok) {
+            alert('Song order saved successfully!');
+            // Switch to song order view to show the saved order
+            currentSort = 'song_number';
+            sortReverse = false;
+            sortHistory = [];
+            document.querySelectorAll('.sort-btn').forEach(b => {
+                b.classList.remove('active');
+                b.textContent = b.textContent.replace(' ↑', '').replace(' ↓', '');
+            });
+            document.querySelector('.sort-btn[data-sort="song_number"]').classList.add('active');
+            await loadSongs();
+        } else {
+            const error = await response.json();
+            alert('Failed to save order: ' + (error.error || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Error saving order:', err);
+        alert('Failed to save order: ' + err.message);
+    }
+}
+
 async function reorderSongsOnServer(orderedIds) {
     try {
         const response = await fetch('/api/songs/reorder', {
@@ -464,6 +515,10 @@ function sortBySkill(skillName) {
     if (currentSort === newSort) {
         sortReverse = !sortReverse;
     } else {
+        // Add current sort to history
+        if (currentSort && currentSort !== newSort) {
+            sortHistory = [{ sort: currentSort, reverse: sortReverse }];
+        }
         sortReverse = false;
         currentSort = newSort;
     }
@@ -490,34 +545,34 @@ function renderSongs() {
     // Filter by search query (title only)
     const filtered = songs.filter(s => !searchQuery || (s.title || '').toLowerCase().includes(searchQuery));
 
-    // Sort songs
-    const sortedSongs = [...filtered].sort((a, b) => {
+    // Helper function to compare two songs by a specific sort criterion
+    const compareBy = (a, b, sortType, reverse) => {
         let comparison = 0;
         
-        if (currentSort === 'song_number') {
+        if (sortType === 'song_number') {
             comparison = a.song_number - b.song_number;
-        } else if (currentSort === 'name') {
+        } else if (sortType === 'name') {
             comparison = (a.title || '').localeCompare(b.title || '');
-        } else if (currentSort === 'priority') {
+        } else if (sortType === 'priority') {
             const priorityOrder = { high: 0, mid: 1, low: 2 };
             comparison = priorityOrder[a.priority] - priorityOrder[b.priority];
-        } else if (currentSort === 'last_practiced') {
-            if (!a.last_practiced) return sortReverse ? -1 : 1;
-            if (!b.last_practiced) return sortReverse ? 1 : -1;
+        } else if (sortType === 'last_practiced') {
+            if (!a.last_practiced) return reverse ? -1 : 1;
+            if (!b.last_practiced) return reverse ? 1 : -1;
             comparison = new Date(a.last_practiced) - new Date(b.last_practiced);
-        } else if (currentSort === 'release_date') {
-            if (!a.release_date) return sortReverse ? -1 : 1;
-            if (!b.release_date) return sortReverse ? 1 : -1;
+        } else if (sortType === 'release_date') {
+            if (!a.release_date) return reverse ? -1 : 1;
+            if (!b.release_date) return reverse ? 1 : -1;
             comparison = a.release_date.localeCompare(b.release_date);
-        } else if (currentSort === 'skills_mastered') {
+        } else if (sortType === 'skills_mastered') {
             const aSkills = a.skills.filter(s => s.is_mastered !== null);
             const bSkills = b.skills.filter(s => s.is_mastered !== null);
             const aMastered = aSkills.filter(s => s.is_mastered === 1).length;
             const bMastered = bSkills.filter(s => s.is_mastered === 1).length;
             comparison = aMastered - bMastered;
-        } else if (currentSort.startsWith('skill:')) {
+        } else if (sortType.startsWith('skill:')) {
             // Sort by specific skill mastery
-            const skillName = currentSort.substring(6); // Remove 'skill:' prefix
+            const skillName = sortType.substring(6); // Remove 'skill:' prefix
             const aSkill = a.skills.find(s => s.name === skillName && s.is_mastered !== null);
             const bSkill = b.skills.find(s => s.name === skillName && s.is_mastered !== null);
             
@@ -527,7 +582,20 @@ function renderSongs() {
             comparison = aValue - bValue;
         }
         
-        return sortReverse ? -comparison : comparison;
+        return reverse ? -comparison : comparison;
+    };
+
+    // Sort songs with multi-level sorting
+    const sortedSongs = [...filtered].sort((a, b) => {
+        // Primary sort
+        let comparison = compareBy(a, b, currentSort, sortReverse);
+        
+        // If equal, use secondary sort from history
+        if (comparison === 0 && sortHistory.length > 0) {
+            comparison = compareBy(a, b, sortHistory[0].sort, sortHistory[0].reverse);
+        }
+        
+        return comparison;
     });
     
     songsList.innerHTML = sortedSongs.map(song => createSongCard(song)).join('');
@@ -686,6 +754,8 @@ function setupDragAndDrop() {
                 el.addEventListener('mousedown', (e) => e.stopPropagation());
             });
             
+            let dragStarted = false;
+            
             card.addEventListener('dragstart', (e) => {
                 // Only allow drag from drag handle or card background
                 if (!e.target.closest('.drag-handle') && 
@@ -695,14 +765,18 @@ function setupDragAndDrop() {
                     return;
                 }
                 card.classList.add('dragging');
+                dragStarted = true;
             });
             
             card.addEventListener('dragend', () => {
                 card.classList.remove('dragging');
-                // After drop, collect order and send to server
-                const orderedIds = Array.from(container.querySelectorAll('.song-card'))
-                    .map(el => parseInt(el.getAttribute('data-id')));
-                reorderSongsOnServer(orderedIds);
+                // Only reorder if an actual drag occurred
+                if (dragStarted) {
+                    const orderedIds = Array.from(container.querySelectorAll('.song-card'))
+                        .map(el => parseInt(el.getAttribute('data-id')));
+                    reorderSongsOnServer(orderedIds);
+                }
+                dragStarted = false;
             });
         });
 

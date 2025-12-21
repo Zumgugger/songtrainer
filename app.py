@@ -52,7 +52,7 @@ RESET_TOKEN_HOURS = 2
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 ALLOWED_EXTS = {'.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg'}
-ALLOWED_CHART_EXTS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.txt', '.doc', '.docx'}
+ALLOWED_CHART_EXTS = {'.pdf', '.png', '.jpg', '.jpeg', '.gif', '.txt', '.doc', '.docx', '.odt'}
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Initialize database on first run
@@ -1013,7 +1013,7 @@ def manage_audio(song_id):
 @login_required
 def manage_chart(song_id):
     """Attach or remove chart for a song.
-    POST with JSON field 'file_path' to link to existing file.
+    POST with JSON field 'file_path' to copy file to charts/ folder.
     DELETE to unlink existing chart_path.
     """
     with get_db() as conn:
@@ -1024,7 +1024,7 @@ def manage_chart(song_id):
             cur.execute('UPDATE songs SET chart_path = NULL WHERE id = ?', (song_id,))
             return jsonify({'message': 'Chart link removed'})
 
-        # POST - link to file path
+        # POST - copy file to charts folder
         data = request.json
         if not data or 'file_path' not in data:
             return jsonify({'error': 'No file_path provided'}), 400
@@ -1040,8 +1040,23 @@ def manage_chart(song_id):
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found at specified path'}), 404
         
-        cur.execute('UPDATE songs SET chart_path = ? WHERE id = ?', (file_path, song_id))
-        return jsonify({'message': 'Chart linked', 'chart_path': file_path})
+        # Copy file to charts folder
+        charts_folder = os.path.join(os.getcwd(), 'charts')
+        os.makedirs(charts_folder, exist_ok=True)
+        
+        # Get song title for filename
+        song = cur.execute('SELECT title FROM songs WHERE id = ?', (song_id,)).fetchone()
+        safe_title = ''.join(c for c in song['title'] if c.isalnum() or c in (' ', '-', '_')).strip()
+        dest_filename = f'{song_id}_{safe_title}{ext}'
+        dest_path = os.path.join(charts_folder, dest_filename)
+        
+        # Copy the file
+        import shutil
+        shutil.copy2(file_path, dest_path)
+        
+        # Update database with local path
+        cur.execute('UPDATE songs SET chart_path = ? WHERE id = ?', (dest_path, song_id))
+        return jsonify({'message': 'Chart uploaded', 'chart_path': dest_path})
 
 # ==================== SKILLS API ====================
 
@@ -1463,7 +1478,7 @@ def sync_repertoire_folders(repertoire_id):
                 ).fetchall()
                 
                 sheet_files = []
-                for ext in ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.txt', '.doc', '.docx']:
+                for ext in ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.txt', '.doc', '.docx', '.odt']:
                     sheet_files.extend(glob.glob(os.path.join(rep['sheet_folder'], f'*{ext}')))
                 
                 stats['debug']['sheet_files_found'] = len(sheet_files)
