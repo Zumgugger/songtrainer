@@ -1,6 +1,9 @@
 # Uploads (audio and chart files)
 uploads/
 
+# Database backups
+Database_backups/
+
 # Python
 __pycache__/
 *.py[cod]

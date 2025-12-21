@@ -941,6 +941,27 @@ def windows_path_to_wsl(win_path):
     wsl_path = wsl_path.replace('\\', '/')
     return wsl_path
 
+def resolve_chart_path(chart_path):
+    """
+    Resolve a chart path to work on any platform (Windows/WSL/Linux/Ubuntu).
+    Handles Windows paths (e:\...), WSL paths (/mnt/e/...), and native Linux paths.
+    """
+    if not chart_path:
+        return None
+    
+    # Normalize backslashes to forward slashes
+    normalized = chart_path.replace('\\', '/')
+    
+    # If it's a Windows path (e.g., "e:/Drive/..."), convert to WSL
+    if ':' in normalized and not normalized.startswith('/'):
+        # Windows path like "e:/Drive/..." - convert to /mnt/e/Drive/...
+        drive_letter = normalized[0].lower()
+        rest = normalized[2:]  # Skip "e:/"
+        return f'/mnt/{drive_letter}{rest}'
+    
+    # Otherwise return as-is (could be WSL /mnt/e/... or native /home/... or /root/...)
+    return normalized
+
 @app.route('/media/<int:song_id>')
 @login_required
 def media(song_id):
@@ -1297,12 +1318,14 @@ def sync_repertoire_folders(repertoire_id):
             'songs_added': 0,
             'mp3_linked': 0,
             'sheets_linked': 0,
+            'charts_migrated': 0,
             'errors': [],
             'debug': {
                 'songs_in_repertoire': 0,
                 'mp3_files_found': 0,
                 'sheet_files_found': 0,
                 'songlist_files_found': 0,
+                'external_charts_found': 0,
                 'songlist_folder_path': rep['songlist_folder'],
                 'mp3_folder_path': rep['mp3_folder'],
                 'sheet_folder_path': rep['sheet_folder']
@@ -1483,6 +1506,10 @@ def sync_repertoire_folders(repertoire_id):
                 
                 stats['debug']['sheet_files_found'] = len(sheet_files)
                 
+                # Ensure charts folder exists
+                charts_folder = os.path.join(os.getcwd(), 'charts')
+                os.makedirs(charts_folder, exist_ok=True)
+                
                 for song in songs:
                     song_title = song['title'].lower()
                     song_artist = song['artist'].lower()
@@ -1515,20 +1542,85 @@ def sync_repertoire_folders(repertoire_id):
                                 best_sheet = matching_sheets[0][0]
                     
                     if best_sheet:
-                        # Record old value before updating
+                        # Copy chart to local charts folder
+                        ext = os.path.splitext(best_sheet)[1]
+                        safe_title = ''.join(c for c in song['title'] if c.isalnum() or c in (' ', '-', '_')).strip()
+                        dest_filename = f'{song["id"]}_{safe_title}{ext}'
+                        dest_path = os.path.join(charts_folder, dest_filename)
+                        
+                        # Copy the file
+                        import shutil
+                        shutil.copy2(best_sheet, dest_path)
+                        
+                        # Record old value before updating (None since chart_path was NULL)
                         cursor.execute('''
                             INSERT INTO sync_history (
                                 repertoire_id, sync_timestamp, operation_type, song_id, field_name, old_value, new_value
                             ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ''', (repertoire_id, sync_timestamp, 'field_updated', song['id'], 'chart_path', None, best_sheet))
+                        ''', (repertoire_id, sync_timestamp, 'field_updated', song['id'], 'chart_path', None, dest_path))
                         
                         cursor.execute(
                             'UPDATE songs SET chart_path = ? WHERE id = ?',
-                            (best_sheet, song['id'])
+                            (dest_path, song['id'])
                         )
                         stats['sheets_linked'] += 1
             except Exception as e:
                 stats['errors'].append(f'Sheet sync error: {str(e)}')
+        
+        # Step 4: Check existing charts and copy to local folder if needed
+        try:
+            # Get all songs with charts that are NOT in the charts folder
+            charts_folder = os.path.join(os.getcwd(), 'charts')
+            charts_folder_pattern = charts_folder + '%'
+            
+            songs_with_external_charts = cursor.execute('''
+                SELECT id, title, chart_path 
+                FROM songs 
+                WHERE repertoire_id = ? 
+                AND chart_path IS NOT NULL 
+                AND chart_path NOT LIKE ?
+            ''', (repertoire_id, charts_folder_pattern)).fetchall()
+            
+            stats['debug']['external_charts_found'] = len(songs_with_external_charts)
+            
+            os.makedirs(charts_folder, exist_ok=True)
+            
+            for song in songs_with_external_charts:
+                old_chart_path = song['chart_path']
+                
+                # Resolve the path to work on any platform (Windows/WSL/Linux/Ubuntu)
+                resolved_chart_path = resolve_chart_path(old_chart_path)
+                
+                # Check if the file exists
+                if not os.path.exists(resolved_chart_path):
+                    continue
+                
+                # Copy to charts folder
+                ext = os.path.splitext(resolved_chart_path)[1]
+                safe_title = ''.join(c for c in song['title'] if c.isalnum() or c in (' ', '-', '_')).strip()
+                dest_filename = f'{song["id"]}_{safe_title}{ext}'
+                dest_path = os.path.join(charts_folder, dest_filename)
+                
+                # Copy the file
+                import shutil
+                shutil.copy2(resolved_chart_path, dest_path)
+                
+                # Record the change
+                cursor.execute('''
+                    INSERT INTO sync_history (
+                        repertoire_id, sync_timestamp, operation_type, song_id, field_name, old_value, new_value
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (repertoire_id, sync_timestamp, 'chart_moved', song['id'], 'chart_path', old_chart_path, dest_path))
+                
+                # Update the database
+                cursor.execute(
+                    'UPDATE songs SET chart_path = ? WHERE id = ?',
+                    (dest_path, song['id'])
+                )
+                stats['charts_migrated'] += 1
+                
+        except Exception as e:
+            stats['errors'].append(f'Chart migration error: {str(e)}')
         
         return jsonify(stats)
 
@@ -1552,8 +1644,12 @@ def undo_sync_repertoire(repertoire_id):
         stats = {
             'songs_deleted': 0,
             'audio_unlinked': 0,
-            'charts_unlinked': 0
+            'charts_unlinked': 0,
+            'charts_restored': 0,
+            'files_deleted': 0
         }
+        
+        charts_folder = os.path.join(os.getcwd(), 'charts')
         
         # Reverse the operations
         for record in history:
@@ -1572,11 +1668,35 @@ def undo_sync_repertoire(repertoire_id):
                     stats['audio_unlinked'] += 1
                 
                 elif record['field_name'] == 'chart_path':
+                    # Delete the file from charts folder if it was created during sync
+                    if record['new_value'] and record['new_value'].startswith(charts_folder):
+                        try:
+                            if os.path.exists(record['new_value']):
+                                os.remove(record['new_value'])
+                                stats['files_deleted'] += 1
+                        except Exception as e:
+                            print(f"Error deleting file {record['new_value']}: {e}")
+                    
                     cursor.execute(
                         'UPDATE songs SET chart_path = ? WHERE id = ?',
                         (record['old_value'], record['song_id'])
                     )
                     stats['charts_unlinked'] += 1
+            
+            elif record['operation_type'] == 'chart_moved':
+                # Restore original chart path and delete copied file
+                if record['new_value'] and os.path.exists(record['new_value']):
+                    try:
+                        os.remove(record['new_value'])
+                        stats['files_deleted'] += 1
+                    except Exception as e:
+                        print(f"Error deleting file {record['new_value']}: {e}")
+                
+                cursor.execute(
+                    'UPDATE songs SET chart_path = ? WHERE id = ?',
+                    (record['old_value'], record['song_id'])
+                )
+                stats['charts_restored'] += 1
         
         # Clear the sync history after undoing
         cursor.execute('DELETE FROM sync_history WHERE repertoire_id = ?', (repertoire_id,))
