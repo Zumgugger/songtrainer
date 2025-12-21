@@ -426,6 +426,20 @@ async function togglePriority(songId) {
     }
 }
 
+async function toggleDifficulty(songId) {
+    try {
+        const response = await fetch(`/api/songs/${songId}/difficulty/toggle`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadSongs();
+        }
+    } catch (error) {
+        console.error('Error toggling difficulty:', error);
+    }
+}
+
 function toggleFocusMode() {
     focusMode = !focusMode;
     const songsList = document.getElementById('songsList');
@@ -556,6 +570,11 @@ function renderSongs() {
         } else if (sortType === 'priority') {
             const priorityOrder = { high: 0, mid: 1, low: 2 };
             comparison = priorityOrder[a.priority] - priorityOrder[b.priority];
+        } else if (sortType === 'difficulty') {
+            const difficultyOrder = { easy: 0, normal: 1, hard: 2 };
+            const aDiff = a.difficulty || 'normal';
+            const bDiff = b.difficulty || 'normal';
+            comparison = difficultyOrder[aDiff] - difficultyOrder[bDiff];
         } else if (sortType === 'last_practiced') {
             if (!a.last_practiced) return reverse ? -1 : 1;
             if (!b.last_practiced) return reverse ? 1 : -1;
@@ -608,6 +627,13 @@ function createSongCard(song) {
         mid: '🟡',
         low: '🟢'
     };
+    
+    const difficultyIcons = {
+        easy: '🪶',
+        normal: '🎯',
+        hard: '🔥'
+    };
+    const difficultyValue = song.difficulty || 'normal';
     
     const lastPracticed = song.last_practiced 
         ? `Last practiced: ${formatDate(song.last_practiced)}`
@@ -670,7 +696,7 @@ function createSongCard(song) {
                         <span>Practice Progress</span>
                         <span>
                             <strong>${song.practice_count}</strong> / ${song.practice_target}
-                            <button class="btn-icon" onclick="increaseTarget(${song.id})" title="Add more practice rounds (resets progress bar)" style="margin-left: 8px;">⬆️</button>
+                            <button class="btn-icon" onclick="increaseTarget(${song.id})" title="+practice rounds" style="margin-left: 8px;">⬆️</button>
                         </span>
                     </div>
                     <div class="progress-bar-container">
@@ -710,6 +736,7 @@ function createSongCard(song) {
                         <div class="song-number" title="Order">${song.song_number}</div>
                         <h3 class="song-title">${song.title}${song.performance_hints ? ' ' + formatPerformanceHints(song.performance_hints) : ''}</h3>
                         <span class="priority-badge" title="Click to change priority (${song.priority})" onclick="togglePriority(${song.id})">${priorityIcons[song.priority]}</span>
+                        <span class="difficulty-badge" title="Click to change difficulty (${difficultyValue})" onclick="toggleDifficulty(${song.id})">${difficultyIcons[difficultyValue]}</span>
                         <span class="drag-handle" title="Drag to reorder">⠿</span>
                     </div>
                     <p class="song-artist">${song.artist}</p>
@@ -743,8 +770,10 @@ function setupDragAndDrop() {
     const container = document.getElementById('songsList');
     const cards = container.querySelectorAll('.song-card');
     
-    // Only enable dragging in song order mode
-    if (currentSort === 'song_number') {
+    // Only enable dragging in song order mode and when not filtering (search active)
+    const dragEnabled = currentSort === 'song_number' && (!searchQuery || searchQuery.length === 0);
+
+    if (dragEnabled) {
         cards.forEach(card => {
             card.setAttribute('draggable', 'true');
             
@@ -771,7 +800,7 @@ function setupDragAndDrop() {
             card.addEventListener('dragend', () => {
                 card.classList.remove('dragging');
                 // Only reorder if an actual drag occurred
-                if (dragStarted) {
+                if (dragStarted && dragEnabled) {
                     const orderedIds = Array.from(container.querySelectorAll('.song-card'))
                         .map(el => parseInt(el.getAttribute('data-id')));
                     reorderSongsOnServer(orderedIds);

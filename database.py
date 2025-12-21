@@ -442,6 +442,27 @@ def ensure_performance_hints_column():
         if 'performance_hints' not in colnames:
             cursor.execute('ALTER TABLE songs ADD COLUMN performance_hints TEXT')
             print('Added performance_hints column to songs table')
+        
+        if 'difficulty' not in colnames:
+            cursor.execute('ALTER TABLE songs ADD COLUMN difficulty TEXT DEFAULT "normal" CHECK(difficulty IN ("easy", "normal", "hard"))')
+            # Update all existing songs to have default difficulty
+            cursor.execute('UPDATE songs SET difficulty = "normal" WHERE difficulty IS NULL')
+            print('Added difficulty column to songs table with default "normal"')
+
+
+def ensure_practice_targets_not_below_count():
+    """Raise practice_target to match practice_count when target is set but behind the count."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            '''UPDATE songs
+               SET practice_target = practice_count
+             WHERE practice_target > 0 AND practice_count > practice_target'''
+        )
+        updated = cursor.rowcount
+        if updated:
+            print(f'Normalized practice_target for {updated} song(s)')
+
 
 def ensure_sync_history_table():
     """Ensure sync_history table exists for undo functionality."""
@@ -479,6 +500,7 @@ if __name__ == '__main__':
     ensure_indexes_and_normalize()
     ensure_repertoire_folder_columns()
     ensure_performance_hints_column()
+    ensure_practice_targets_not_below_count()
     ensure_repertoire_notes_column()
     ensure_sync_history_table()
 

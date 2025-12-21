@@ -12,6 +12,7 @@ from database import (
     ensure_repertoire_sort_order_column,
     ensure_repertoire_folder_columns,
     ensure_sync_history_table,
+    ensure_practice_targets_not_below_count,
     ensure_repertoire_notes_column,
     ensure_users_table,
     ensure_remember_tokens_table,
@@ -120,6 +121,10 @@ except Exception:
     pass
 try:
     ensure_indexes_and_normalize()
+except Exception:
+    pass
+try:
+    ensure_practice_targets_not_below_count()
 except Exception:
     pass
 
@@ -633,6 +638,14 @@ def get_songs():
     requested_user_id = request.args.get('user_id', type=int)
     scope_user_id = _resolve_scope_user_id(requested_user_id)
 
+    # Auto-bump targets for full bars that have aged past difficulty-based thresholds
+    difficulty_threshold_days = {
+        'easy': 90,
+        'normal': 60,
+        'hard': 30,
+    }
+    now = datetime.now()
+
     with get_db() as conn:
         cursor = conn.cursor()
 
@@ -650,6 +663,25 @@ def get_songs():
 
         songs_list = []
         for song in songs:
+            song_dict = dict(song)
+
+            practice_target = song_dict.get('practice_target') or 0
+            practice_count = song_dict.get('practice_count') or 0
+            last_practiced = song_dict.get('last_practiced')
+            difficulty = song_dict.get('difficulty') or 'normal'
+            threshold_days = difficulty_threshold_days.get(difficulty, difficulty_threshold_days['normal'])
+
+            if practice_target > 0 and practice_count >= practice_target and last_practiced:
+                try:
+                    last_practiced_dt = datetime.fromisoformat(last_practiced)
+                    days_since = (now - last_practiced_dt).days
+                    if days_since >= threshold_days:
+                        new_target = practice_target + 1
+                        cursor.execute('UPDATE songs SET practice_target = ? WHERE id = ?', (new_target, song_dict['id']))
+                        song_dict['practice_target'] = new_target
+                except Exception:
+                    pass
+
             skills = cursor.execute('''
                 SELECT s.id, s.name, ss.is_mastered
                 FROM skills s
@@ -657,13 +689,12 @@ def get_songs():
                 ORDER BY s.id
             ''', (song['id'],)).fetchall()
 
-            song_dict = dict(song)
             song_dict['skills'] = [dict(skill) for skill in skills]
 
             total_skills = len([s for s in skills if s['is_mastered'] is not None])
             mastered_skills = len([s for s in skills if s['is_mastered'] == 1])
             song_dict['skills_progress'] = (mastered_skills / total_skills * 100) if total_skills > 0 else 0
-            song_dict['practice_progress'] = (song['practice_count'] / song['practice_target'] * 100) if song['practice_target'] > 0 else 0
+            song_dict['practice_progress'] = (song_dict['practice_count'] / song_dict['practice_target'] * 100) if song_dict['practice_target'] > 0 else 0
 
             songs_list.append(song_dict)
 
@@ -805,10 +836,23 @@ def practice_song(song_id):
 
         now = datetime.now().isoformat()
 
+        # Increment practice count
         cursor.execute(
             'UPDATE songs SET practice_count = practice_count + 1, last_practiced = ? WHERE id = ?',
             (now, song_id)
         )
+
+        # Fetch updated counts to adjust target if needed
+        updated = cursor.execute(
+            'SELECT practice_count, practice_target FROM songs WHERE id = ?',
+            (song_id,)
+        ).fetchone()
+
+        if updated and updated['practice_target'] and updated['practice_target'] > 0 and updated['practice_count'] > updated['practice_target']:
+            cursor.execute(
+                'UPDATE songs SET practice_target = ? WHERE id = ?',
+                (updated['practice_count'], song_id)
+            )
 
         cursor.execute(
             'INSERT INTO practice_sessions (song_id, practiced_at) VALUES (?, ?)',
@@ -820,7 +864,7 @@ def practice_song(song_id):
 @app.route('/api/songs/<int:song_id>/target/increase', methods=['POST'])
 @login_required
 def increase_target(song_id):
-    """Increase practice target by current practice count to reset progress bar while keeping history."""
+    """Increase practice target by one to extend the goal incrementally."""
     with get_db() as conn:
         cursor = conn.cursor()
         _require_song(cursor, song_id, g.current_user['id'])
@@ -833,7 +877,8 @@ def increase_target(song_id):
         if not result:
             return jsonify({'error': 'Song not found'}), 404
 
-        new_target = result['practice_target'] + result['practice_count']
+        current_target = result['practice_target'] or 0
+        new_target = current_target + 1
 
         cursor.execute('UPDATE songs SET practice_target = ? WHERE id = ?', (new_target, song_id))
 
@@ -882,6 +927,25 @@ def toggle_priority(song_id):
         cursor.execute('UPDATE songs SET priority = ? WHERE id = ?', (new_priority, song_id))
 
         return jsonify({'priority': new_priority})
+
+@app.route('/api/songs/<int:song_id>/difficulty/toggle', methods=['POST'])
+@login_required
+def toggle_difficulty(song_id):
+    """Toggle difficulty: normal -> easy -> hard -> normal"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        _require_song(cursor, song_id, g.current_user['id'])
+
+        result = cursor.execute('SELECT difficulty FROM songs WHERE id = ?', (song_id,)).fetchone()
+        if not result:
+            return jsonify({'error': 'Song not found'}), 404
+
+        difficulty_cycle = {'normal': 'easy', 'easy': 'hard', 'hard': 'normal'}
+        new_difficulty = difficulty_cycle.get(result['difficulty'], 'normal')
+
+        cursor.execute('UPDATE songs SET difficulty = ? WHERE id = ?', (new_difficulty, song_id))
+
+        return jsonify({'difficulty': new_difficulty})
 
 # ==================== ORDERING API ====================
 

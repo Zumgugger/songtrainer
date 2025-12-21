@@ -438,11 +438,27 @@ header h1 {
     user-select: none;
 }
 
+.difficulty-badge {
+    font-size: 1.5rem;
+    margin-left: 8px;
+    cursor: pointer;
+    transition: transform 0.2s;
+    user-select: none;
+}
+
 .priority-badge:hover {
     transform: scale(1.2);
 }
 
+.difficulty-badge:hover {
+    transform: scale(1.2);
+}
+
 .priority-badge:active {
+    transform: scale(0.95);
+}
+
+.difficulty-badge:active {
     transform: scale(0.95);
 }
 
