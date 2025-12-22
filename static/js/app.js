@@ -546,6 +546,31 @@ function sortBySkill(skillName) {
     renderSongs();
 }
 
+// Sort by practice progress
+function sortByPracticeProgress() {
+    const newSort = 'practice_progress';
+    
+    // Toggle reverse if clicking same sort
+    if (currentSort === newSort) {
+        sortReverse = !sortReverse;
+    } else {
+        // Add current sort to history
+        if (currentSort && currentSort !== newSort) {
+            sortHistory = [{ sort: currentSort, reverse: sortReverse }];
+        }
+        sortReverse = false;
+        currentSort = newSort;
+    }
+    
+    // Clear active state from sort buttons
+    document.querySelectorAll('.sort-btn').forEach(b => {
+        b.classList.remove('active');
+        b.textContent = b.textContent.replace(' ↑', '').replace(' ↓', '');
+    });
+    
+    renderSongs();
+}
+
 // ==================== RENDERING ====================
 
 function renderSongs() {
@@ -589,6 +614,10 @@ function renderSongs() {
             const aMastered = aSkills.filter(s => s.is_mastered === 1).length;
             const bMastered = bSkills.filter(s => s.is_mastered === 1).length;
             comparison = aMastered - bMastered;
+        } else if (sortType === 'practice_progress') {
+            const aProgress = a.practice_progress || 0;
+            const bProgress = b.practice_progress || 0;
+            comparison = aProgress - bProgress;
         } else if (sortType.startsWith('skill:')) {
             // Sort by specific skill mastery
             const skillName = sortType.substring(6); // Remove 'skill:' prefix
