@@ -502,6 +502,8 @@ if __name__ == '__main__':
     ensure_performance_hints_column()
     ensure_practice_targets_not_below_count()
     ensure_repertoire_notes_column()
+    ensure_practice_date_log_table()
+    ensure_duration_column()
     ensure_sync_history_table()
 
 def ensure_repertoire_notes_column():
@@ -514,3 +516,39 @@ def ensure_repertoire_notes_column():
         if 'notes' not in colnames:
             cursor.execute('ALTER TABLE repertoires ADD COLUMN notes TEXT')
             print('Added notes column to repertoires table')
+
+
+def ensure_practice_date_log_table():
+    """Ensure practice_date_log table exists for tracking daily practice counts per song."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Create practice_date_log table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS practice_date_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                song_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                practice_date TEXT NOT NULL,
+                practice_count INTEGER DEFAULT 1,
+                FOREIGN KEY (song_id) REFERENCES songs (id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+                UNIQUE(song_id, user_id, practice_date)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_date_log_song ON practice_date_log (song_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_date_log_date ON practice_date_log (practice_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_practice_date_log_user ON practice_date_log (user_id)')
+        print('Ensured practice_date_log table exists')
+
+
+def ensure_duration_column():
+    """Ensure songs table has duration column for storing audio duration in seconds."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(songs)').fetchall()
+        colnames = {c['name'] for c in cols}
+        
+        if 'duration' not in colnames:
+            cursor.execute('ALTER TABLE songs ADD COLUMN duration INTEGER')
+            print('Added duration column to songs table')

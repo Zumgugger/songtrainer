@@ -14,6 +14,8 @@ from database import (
     ensure_sync_history_table,
     ensure_practice_targets_not_below_count,
     ensure_repertoire_notes_column,
+    ensure_practice_date_log_table,
+    ensure_duration_column,
     ensure_users_table,
     ensure_remember_tokens_table,
     ensure_default_admin,
@@ -39,6 +41,11 @@ import time
 import re
 import secrets
 import hashlib
+try:
+    from mutagen.mp3 import MP3
+    MUTAGEN_AVAILABLE = True
+except ImportError:
+    MUTAGEN_AVAILABLE = False
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-change-me')
@@ -125,6 +132,14 @@ except Exception:
     pass
 try:
     ensure_practice_targets_not_below_count()
+except Exception:
+    pass
+try:
+    ensure_practice_date_log_table()
+except Exception:
+    pass
+try:
+    ensure_duration_column()
 except Exception:
     pass
 
@@ -333,6 +348,21 @@ def _require_song(cursor, song_id, scope_user_id=None):
     if g.current_user['role'] != 'admin' and song['owner_id'] != scope:
         abort(403)
     return song
+
+
+def _extract_mp3_duration(file_path):
+    """Extract duration in seconds from an MP3 file. Returns None if extraction fails."""
+    if not MUTAGEN_AVAILABLE or not file_path:
+        return None
+    try:
+        if not os.path.isfile(file_path):
+            return None
+        audio = MP3(file_path)
+        if audio.info.length:
+            return int(audio.info.length)
+    except Exception:
+        pass
+    return None
 
 # ==================== ROUTES ====================
 
@@ -859,6 +889,14 @@ def practice_song(song_id):
             (song_id, now)
         )
 
+        # Log daily practice count for effort tracking
+        practice_date = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute('''
+            INSERT INTO practice_date_log (song_id, user_id, practice_date, practice_count)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(song_id, user_id, practice_date) DO UPDATE SET practice_count = practice_count + 1
+        ''', (song_id, g.current_user['id'], practice_date))
+
         return jsonify({'message': 'Practice recorded successfully'})
 
 @app.route('/api/songs/<int:song_id>/target/increase', methods=['POST'])
@@ -1072,7 +1110,7 @@ def manage_audio(song_id):
         exist = _require_song(cur, song_id, g.current_user['id'])
 
         if request.method == 'DELETE':
-            cur.execute('UPDATE songs SET audio_path = NULL WHERE id = ?', (song_id,))
+            cur.execute('UPDATE songs SET audio_path = NULL, duration = NULL WHERE id = ?', (song_id,))
             return jsonify({'message': 'Audio link removed'})
 
         # POST - link to file path
@@ -1091,8 +1129,14 @@ def manage_audio(song_id):
         if not os.path.exists(file_path):
             return jsonify({'error': 'File not found at specified path'}), 404
         
-        cur.execute('UPDATE songs SET audio_path = ? WHERE id = ?', (file_path, song_id))
-        return jsonify({'message': 'Audio linked', 'audio_path': file_path})
+        # Extract duration from MP3 if possible
+        duration = _extract_mp3_duration(file_path) if ext in {'.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg'} else None
+        
+        cur.execute('UPDATE songs SET audio_path = ?, duration = ? WHERE id = ?', (file_path, duration, song_id))
+        response = {'message': 'Audio linked', 'audio_path': file_path}
+        if duration:
+            response['duration'] = duration
+        return jsonify(response)
 
 @app.route('/api/songs/<int:song_id>/chart', methods=['POST', 'DELETE'])
 @login_required
@@ -1473,15 +1517,18 @@ def sync_repertoire_folders(repertoire_id):
                             (repertoire_id,)
                         ).fetchone()['max']
                         
+                        # Extract duration from MP3
+                        duration = _extract_mp3_duration(mp3_path)
+                        
                         # Create new song with MP3 linked
                         cursor.execute('''
                             INSERT INTO songs (
                                 title, artist, song_number, repertoire_id, user_id,
-                                priority, practice_count, practice_target, date_added, audio_path, release_date
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                priority, practice_count, practice_target, date_added, audio_path, release_date, duration
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (
                             title, artist, max_num + 1, repertoire_id, rep['user_id'],
-                            'mid', 0, 5, datetime.now().isoformat(), mp3_path, release_year
+                            'mid', 0, 5, datetime.now().isoformat(), mp3_path, release_year, duration
                         ))
                         
                         song_id = cursor.lastrowid
@@ -1539,6 +1586,9 @@ def sync_repertoire_folders(repertoire_id):
                                 name_no_ext in song_title or
                                 f'{song_artist} - {song_title}' in name_no_ext):
                                 
+                                # Extract duration from MP3
+                                duration = _extract_mp3_duration(mp3_path)
+                                
                                 # Record old value before updating
                                 cursor.execute('''
                                     INSERT INTO sync_history (
@@ -1547,8 +1597,8 @@ def sync_repertoire_folders(repertoire_id):
                                 ''', (repertoire_id, sync_timestamp, 'field_updated', song['id'], 'audio_path', None, mp3_path))
                                 
                                 cursor.execute(
-                                    'UPDATE songs SET audio_path = ? WHERE id = ?',
-                                    (mp3_path, song['id'])
+                                    'UPDATE songs SET audio_path = ?, duration = ? WHERE id = ?',
+                                    (mp3_path, duration, song['id'])
                                 )
                                 stats['mp3_linked'] += 1
                                 break
