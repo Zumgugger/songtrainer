@@ -984,6 +984,19 @@ function updateProgressDetails() {
         practiceText.textContent = `${totalPracticeCount} / ${totalPracticeTarget} songs practiced`;
     }
     
+    // Fetch and display time practiced since Christmas
+    if (currentRepertoireId) {
+        fetch(`/api/repertoires/${currentRepertoireId}/time-practiced`)
+            .then(r => r.json())
+            .then(data => {
+                const timeText = document.getElementById('timePracticedText');
+                if (timeText) {
+                    timeText.textContent = data.formatted;
+                }
+            })
+            .catch(err => console.error('Failed to fetch time practiced:', err));
+    }
+    
     // Calculate per-skill progress
     const skillsContainer = document.getElementById('skillsProgressBars');
     if (!skillsContainer) return;

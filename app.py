@@ -364,6 +364,58 @@ def _extract_mp3_duration(file_path):
         pass
     return None
 
+
+def _calculate_time_practiced_since(start_date_str, repertoire_id=None, user_id=None):
+    """
+    Calculate total practice time since a given date.
+    Returns dict with 'seconds', 'hours', 'minutes' keys.
+    If repertoire_id is provided, only count songs in that repertoire.
+    """
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+    except:
+        return {'seconds': 0, 'hours': 0, 'minutes': 0, 'formatted': '0h 0m'}
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        if repertoire_id:
+            # Time for specific repertoire
+            query = '''
+                SELECT SUM(s.duration * pl.practice_count) as total_seconds
+                FROM practice_date_log pl
+                JOIN songs s ON pl.song_id = s.id
+                WHERE s.repertoire_id = ?
+                AND pl.user_id = ?
+                AND pl.practice_date >= ?
+                AND s.duration IS NOT NULL
+            '''
+            result = cursor.execute(query, (repertoire_id, user_id, start_date_str)).fetchone()
+        else:
+            # Total time across all repertoires
+            query = '''
+                SELECT SUM(s.duration * pl.practice_count) as total_seconds
+                FROM practice_date_log pl
+                JOIN songs s ON pl.song_id = s.id
+                WHERE pl.user_id = ?
+                AND pl.practice_date >= ?
+                AND s.duration IS NOT NULL
+            '''
+            result = cursor.execute(query, (user_id, start_date_str)).fetchone()
+        
+        total_seconds = result['total_seconds'] or 0
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        
+        formatted = f"{hours}h {minutes}m" if hours > 0 or minutes > 0 else "0h 0m"
+        
+        return {
+            'seconds': total_seconds,
+            'hours': hours,
+            'minutes': minutes,
+            'formatted': formatted
+        }
+
 # ==================== ROUTES ====================
 
 
@@ -1282,6 +1334,18 @@ def get_repertoires():
             repertoires_list.append(rep_dict)
 
         return jsonify(repertoires_list)
+
+@app.route('/api/repertoires/<int:repertoire_id>/time-practiced', methods=['GET'])
+@login_required
+def get_repertoire_time_practiced(repertoire_id):
+    """Get time practiced for a repertoire since Christmas 2025"""
+    requested_user_id = request.args.get('user_id', type=int)
+    scope_user_id = _resolve_scope_user_id(requested_user_id)
+    
+    start_date = '2025-12-25'  # Christmas 2025
+    time_data = _calculate_time_practiced_since(start_date, repertoire_id, scope_user_id)
+    
+    return jsonify(time_data)
 
 @app.route('/api/repertoires', methods=['POST'])
 @login_required
