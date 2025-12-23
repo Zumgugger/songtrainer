@@ -1031,6 +1031,23 @@ def toggle_skill(song_id, skill_id):
                         'UPDATE songs SET practice_target = ? WHERE id = ?',
                         (new_target, song_id)
                     )
+        # If skill was unmastered, increase practice_target by 1.
+        elif new_status == 0:
+            row = cursor.execute(
+                'SELECT practice_count, practice_target FROM songs WHERE id = ?',
+                (song_id,)
+            ).fetchone()
+            if row is not None:
+                pc = row['practice_count'] or 0
+                pt = row['practice_target'] or 0
+                new_target = max(1, pt + 1)
+                # Keep target not below actual progress just in case
+                new_target = max(new_target, pc)
+                if new_target != pt:
+                    cursor.execute(
+                        'UPDATE songs SET practice_target = ? WHERE id = ?',
+                        (new_target, song_id)
+                    )
 
         return jsonify({'is_mastered': new_status})
 
