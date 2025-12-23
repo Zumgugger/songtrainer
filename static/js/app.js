@@ -429,7 +429,7 @@ function showMoveToRepertoireModal(songId, songTitle) {
             <h3>Move "${songTitle}" to:</h3>
             <div class="repertoire-list" style="display: flex; flex-direction: column; gap: 10px; margin: 20px 0;">
                 ${otherRepertoires.map(rep => `
-                    <button class="btn" style="width: 100%; padding: 12px;" onclick="moveSongToRepertoire(${songId}, ${rep.id}); closeModal();">
+                    <button class="btn" style="width: 100%; padding: 12px;" onclick="moveSongToRepertoire(${songId}, ${rep.id})">
                         ${rep.name}
                     </button>
                 `).join('')}
@@ -460,6 +460,7 @@ async function moveSongToRepertoire(songId, repertoireId) {
         });
         
         if (response.ok) {
+            closeModal();
             loadSongs();
         } else {
             const data = await response.json();
