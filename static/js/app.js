@@ -171,6 +171,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // Delegated event listener for skill progress clicks in the show more area
+    const skillsContainer = document.getElementById('skillsProgressBars');
+    if (skillsContainer) {
+        skillsContainer.addEventListener('click', (e) => {
+            const skillDiv = e.target.closest('[data-skill-name]');
+            if (skillDiv) {
+                const skillName = skillDiv.getAttribute('data-skill-name');
+                sortBySkill(skillName);
+            }
+        });
+    }
+
     // Hidden audio file input
     const audioInput = document.getElementById('audioFileInput');
     audioInput.addEventListener('change', async (e) => {
@@ -1070,7 +1082,7 @@ function updateProgressDetails() {
     skillsContainer.innerHTML = skillsArray.map(skill => {
         const percentage = Math.round((skill.mastered / skill.total) * 100);
         return `
-            <div style="margin-bottom: 15px; cursor: pointer;" onclick="sortBySkill('${skill.name}')" title="Click to sort by this skill">
+            <div style="margin-bottom: 15px; cursor: pointer;" data-skill-name="${skill.name}" title="Click to sort by this skill">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                     <span style="font-size: 0.9rem;">${skill.name}</span>
                     <span style="font-size: 0.85rem; color: var(--text-muted);">${skill.mastered} / ${skill.total}</span>
