@@ -172,16 +172,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Delegated event listener for skill progress clicks in the show more area
-    const skillsContainer = document.getElementById('skillsProgressBars');
-    if (skillsContainer) {
-        skillsContainer.addEventListener('click', (e) => {
-            const skillDiv = e.target.closest('[data-skill-name]');
-            if (skillDiv) {
-                const skillName = skillDiv.getAttribute('data-skill-name');
-                sortBySkill(skillName);
-            }
-        });
-    }
+    // Attach to document to ensure it works even after HTML updates
+    document.addEventListener('click', (e) => {
+        const skillDiv = e.target.closest('[data-skill-name]');
+        if (skillDiv && skillDiv.closest('#skillsProgressBars')) {
+            const skillName = skillDiv.getAttribute('data-skill-name');
+            sortBySkill(skillName);
+        }
+    });
 
     // Hidden audio file input
     const audioInput = document.getElementById('audioFileInput');
