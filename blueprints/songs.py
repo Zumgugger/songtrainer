@@ -284,17 +284,30 @@ def practice_song(song_id):
             (now, song_id)
         )
 
-        # Fetch updated counts to adjust target if needed
+        # Fetch updated counts and skill status
         updated = cursor.execute(
             'SELECT practice_count, practice_target FROM songs WHERE id = ?',
             (song_id,)
         ).fetchone()
 
-        if updated and updated['practice_target'] and updated['practice_target'] > 0 and updated['practice_count'] > updated['practice_target']:
-            cursor.execute(
-                'UPDATE songs SET practice_target = ? WHERE id = ?',
-                (updated['practice_count'], song_id)
-            )
+        # Count not mastered skills for this song
+        not_mastered_count = cursor.execute('''
+            SELECT COUNT(*) as count FROM song_skills
+            WHERE song_id = ? AND is_mastered = 0
+        ''', (song_id,)).fetchone()['count']
+
+        # New practice logic: ensure practice_target is at least (practice_count + not_mastered_skills)
+        # If practice_target <= (practice_count + not_mastered_skills), bump it by 1
+        if updated:
+            new_practice_count = updated['practice_count']
+            current_target = updated['practice_target'] or 0
+            
+            if current_target <= (new_practice_count + not_mastered_count):
+                new_target = current_target + 1
+                cursor.execute(
+                    'UPDATE songs SET practice_target = ? WHERE id = ?',
+                    (new_target, song_id)
+                )
 
         cursor.execute(
             'INSERT INTO practice_sessions (song_id, practiced_at) VALUES (?, ?)',

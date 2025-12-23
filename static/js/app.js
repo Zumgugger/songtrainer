@@ -1727,7 +1727,24 @@ async function lookupSongMetadata() {
 // ==================== UTILITIES ====================
 
 function formatDate(isoString) {
-    const date = new Date(isoString);
+    // Parse ISO string as local time (not UTC)
+    // Python's datetime.now().isoformat() returns "2025-12-23T14:30:45.123456" without timezone
+    // JavaScript's new Date() treats strings without 'Z' or timezone as local time in ISO 8601
+    // but for safety, we explicitly parse it as local time
+    let date;
+    if (isoString.includes('T')) {
+        // ISO format with time: extract date and time components
+        const parts = isoString.split('T');
+        const datePart = parts[0];
+        const timePart = parts[1].split('.')[0]; // Remove microseconds if present
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hours, minutes, seconds] = timePart.split(':').map(Number);
+        date = new Date(year, month - 1, day, hours, minutes, seconds);
+    } else {
+        // Just a date string
+        date = new Date(isoString);
+    }
+    
     const now = new Date();
     
     // Compare calendar days, not timestamps
