@@ -4,7 +4,7 @@
 
 A modern, colorful web application to track your song practice progress for concerts and performances.
 
-**Software by zumgugger** | [www.zumgugger.ch](https://www.zumgugger.ch)
+**Software by zumgugger** | [zumgugger.ch](https://zumgugger.ch)
 
 ---
 
@@ -386,7 +386,7 @@ Enjoy your practice! 🎸🎤
 
 Ein modernes, farbenfrohes Webprogramm zur Verfolgung deines Übungsfortschritts für Konzerte und Auftritte.
 
-**Software von zumgugger** | [www.zumgugger.ch](https://www.zumgugger.ch)
+**Software von zumgugger** | [zumgugger.ch](https://zumgugger.ch)
 
 ---
 
@@ -736,4 +736,4 @@ sync_history            # Sync-Operationen für Rückgängig-Funktion
 
 Viel Spaß beim Üben! 🎸🎤
 
-**Software von zumgugger** | [www.zumgugger.ch](https://www.zumgugger.ch)
+**Software von zumgugger** | [zumgugger.ch](https://zumgugger.ch)
