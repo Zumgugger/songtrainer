@@ -312,15 +312,15 @@ def api_reset_confirm():
 # ==================== USERS API (ADMIN) ====================
 
 @auth.route('/api/users', methods=['GET'])
-@admin_required
+@login_required
 def list_users():
-    """List all users (admin only)."""
+    """List all users (for sharing repertoires, etc)."""
     with get_db() as conn:
         cursor = conn.cursor()
         users = cursor.execute(
-            'SELECT id, email, role, created_at, updated_at FROM users ORDER BY id'
+            'SELECT id, email, role FROM users ORDER BY email'
         ).fetchall()
-        return jsonify({'users': [dict(_serialize_user(u), created_at=u['created_at'], updated_at=u['updated_at']) for u in users]})
+        return jsonify([dict(id=u['id'], email=u['email'], role=u['role']) for u in users])
 
 
 @auth.route('/api/users', methods=['POST'])
@@ -358,6 +358,21 @@ def create_user():
             return jsonify({'id': user_id, 'message': 'User created'})
         except sqlite3.IntegrityError:
             return jsonify({'error': 'Email already exists'}), 400
+
+
+@auth.route('/api/users/<int:user_id>', methods=['GET'])
+@login_required
+def get_user(user_id):
+    """Get user by ID (for displaying copy info, etc)."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        user = cursor.execute(
+            'SELECT id, email, role FROM users WHERE id = ?',
+            (user_id,)
+        ).fetchone()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        return jsonify(dict(id=user['id'], email=user['email'], role=user['role']))
 
 
 @auth.route('/api/users/<int:user_id>', methods=['PUT'])
