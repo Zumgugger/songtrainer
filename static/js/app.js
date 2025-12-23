@@ -661,6 +661,15 @@ function renderSongs() {
             const aMastered = aSkills.filter(s => s.is_mastered === 1).length;
             const bMastered = bSkills.filter(s => s.is_mastered === 1).length;
             comparison = aMastered - bMastered;
+        } else if (sortType === 'practice_gap') {
+            // Sort by gap between practice target and practice count (biggest gap first when descending)
+            const aTarget = a.practice_target || 0;
+            const aCount = a.practice_count || 0;
+            const bTarget = b.practice_target || 0;
+            const bCount = b.practice_count || 0;
+            const aGap = aTarget - aCount;
+            const bGap = bTarget - bCount;
+            comparison = aGap - bGap;
         } else if (sortType === 'practice_progress') {
             const aProgress = a.practice_progress || 0;
             const bProgress = b.practice_progress || 0;
