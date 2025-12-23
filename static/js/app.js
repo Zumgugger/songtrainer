@@ -554,6 +554,9 @@ async function reorderSongsOnServer(orderedIds) {
 
 // Sort by specific skill
 function sortBySkill(skillName) {
+    // Unlock reordering to allow new sort to take effect
+    unlockReordering();
+    
     const newSort = 'skill:' + skillName;
     
     // Toggle reverse if clicking same skill
@@ -579,6 +582,9 @@ function sortBySkill(skillName) {
 
 // Sort by practice progress
 function sortByPracticeProgress() {
+    // Unlock reordering to allow new sort to take effect
+    unlockReordering();
+    
     const newSort = 'practice_progress';
     
     // Toggle reverse if clicking same sort
