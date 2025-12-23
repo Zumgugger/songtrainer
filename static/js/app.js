@@ -16,6 +16,19 @@ let currentAttachChartId = null;
 let focusMode = false;
 let currentUser = null;
 
+// Reorder lock: prevent re-sorting/filtering after quick actions (e.g., toggling a skill)
+let reorderLocked = false;
+let lastRenderedSongIds = [];
+
+function lockReordering() {
+    reorderLocked = true;
+}
+
+function unlockReordering() {
+    reorderLocked = false;
+    lastRenderedSongIds = [];
+}
+
 // Redirect to login on 401 for any fetch
 const originalFetch = window.fetch;
 window.fetch = async (...args) => {
@@ -101,6 +114,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Sort buttons
     document.querySelectorAll('.sort-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
+            // Changing sort explicitly unlocks reordering
+            unlockReordering();
             const newSort = e.target.dataset.sort;
             
             // Toggle reverse if clicking same button
@@ -135,6 +150,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Search box
     const searchInput = document.getElementById('searchInput');
     searchInput.addEventListener('input', (e) => {
+        // Changing search explicitly unlocks reordering
+        unlockReordering();
         searchQuery = (e.target.value || '').trim().toLowerCase();
         renderSongs();
     });
@@ -356,6 +373,8 @@ async function loadSongs() {
 
 async function practiceSong(songId) {
     try {
+        // Lock reordering to keep the same song under the cursor for quick repeated clicks
+        lockReordering();
         const response = await fetch(`/api/songs/${songId}/practice`, {
             method: 'POST'
         });
@@ -370,6 +389,8 @@ async function practiceSong(songId) {
 
 async function toggleSkill(songId, skillId) {
     try {
+        // Lock reordering to avoid resort/removal while toggling multiple skills
+        lockReordering();
         const response = await fetch(`/api/songs/${songId}/skills/${skillId}/toggle`, {
             method: 'POST'
         });
@@ -581,6 +602,16 @@ function renderSongs() {
         return;
     }
     
+    // When locked, render the last snapshot to avoid reordering/removal while user does quick actions
+    if (reorderLocked && lastRenderedSongIds.length > 0) {
+        const stableSongs = lastRenderedSongIds
+            .map(id => songs.find(s => s.id === id))
+            .filter(Boolean);
+        songsList.innerHTML = stableSongs.map(song => createSongCard(song)).join('');
+        setupDragAndDrop();
+        return;
+    }
+
     // Filter by search query (title only)
     const filtered = songs.filter(s => !searchQuery || (s.title || '').toLowerCase().includes(searchQuery));
 
@@ -646,6 +677,8 @@ function renderSongs() {
         return comparison;
     });
     
+    // Save snapshot for lock mode
+    lastRenderedSongIds = sortedSongs.map(s => s.id);
     songsList.innerHTML = sortedSongs.map(song => createSongCard(song)).join('');
     setupDragAndDrop();
 }
@@ -1319,6 +1352,8 @@ async function persistRepertoireOrder() {
 }
 
 function switchRepertoire(repertoireId) {
+    // Switching repertoire unlocks and refreshes
+    unlockReordering();
     currentRepertoireId = repertoireId;
     renderRepertoireTabs();
     loadSongs();
