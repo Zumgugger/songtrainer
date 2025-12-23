@@ -222,7 +222,27 @@ def update_song(song_id):
 
         song_row = require_song(cursor, song_id, g.current_user['id'])
         old_number = song_row['song_number']
-        repertoire_id = song_row['repertoire_id']
+        old_repertoire_id = song_row['repertoire_id']
+        
+        # Check if repertoire_id is being changed
+        new_repertoire_id = data.get('repertoire_id', old_repertoire_id)
+        if new_repertoire_id != old_repertoire_id:
+            # Verify user owns the new repertoire
+            new_rep = cursor.execute(
+                'SELECT id FROM repertoires WHERE id = ? AND user_id = ?',
+                (new_repertoire_id, g.current_user['id'])
+            ).fetchone()
+            if not new_rep:
+                return jsonify({'error': 'Repertoire not found'}), 404
+            
+            # Update the repertoire_id
+            cursor.execute(
+                'UPDATE songs SET repertoire_id = ? WHERE id = ?',
+                (new_repertoire_id, song_id)
+            )
+            repertoire_id = new_repertoire_id
+        else:
+            repertoire_id = old_repertoire_id
 
         new_number = data.get('song_number', old_number)
         if not isinstance(new_number, int):

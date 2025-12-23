@@ -413,6 +413,64 @@ async function toggleSkill(songId, skillId) {
     }
 }
 
+function isInArchive() {
+    const currentRep = repertoires.find(r => r.id === currentRepertoireId);
+    return currentRep && currentRep.name === 'Archive';
+}
+
+function showMoveToRepertoireModal(songId, songTitle) {
+    const currentRep = repertoires.find(r => r.id === currentRepertoireId);
+    const otherRepertoires = repertoires.filter(r => r.id !== currentRepertoireId);
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 400px;">
+            <h3>Move "${songTitle}" to:</h3>
+            <div class="repertoire-list" style="display: flex; flex-direction: column; gap: 10px; margin: 20px 0;">
+                ${otherRepertoires.map(rep => `
+                    <button class="btn" style="width: 100%; padding: 12px;" onclick="moveSongToRepertoire(${songId}, ${rep.id}); closeModal();">
+                        ${rep.name}
+                    </button>
+                `).join('')}
+            </div>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Close on background click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+}
+
+function closeModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) modal.remove();
+}
+
+async function moveSongToRepertoire(songId, repertoireId) {
+    try {
+        const response = await fetch(`/api/songs/${songId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repertoire_id: repertoireId })
+        });
+        
+        if (response.ok) {
+            loadSongs();
+        } else {
+            const data = await response.json();
+            alert(data.error || 'Failed to move song');
+        }
+    } catch (error) {
+        console.error('Error moving song:', error);
+        alert('Failed to move song');
+    }
+}
+
 async function archiveSong(songId, title) {
     if (!confirm(`Move "${title}" to Archive?`)) return;
     
@@ -855,7 +913,10 @@ function createSongCard(song) {
                     ${song.audio_path ? `<button class="btn-icon" onclick="removeAudio(${song.id})" title="Remove audio link">🗑️🎧</button>` : ''}
                     <button class="btn-icon attach-btn" onclick="attachChart(${song.id})" title="Attach chart">📄➕</button>
                     ${song.chart_path ? `<button class="btn-icon" onclick="removeChart(${song.id})" title="Remove chart link">🗑️📄</button>` : ''}
-                    <button class="btn-icon" onclick="archiveSong(${song.id}, '${song.title.replace(/'/g, "\\'")}')" title="Move to Archive">📦</button>
+                    ${isInArchive() 
+                        ? `<button class="btn-icon" onclick="showMoveToRepertoireModal(${song.id}, '${song.title.replace(/'/g, "\\'")}')" title="Move to repertoire">📋</button>`
+                        : `<button class="btn-icon" onclick="archiveSong(${song.id}, '${song.title.replace(/'/g, "\\'")}')" title="Move to Archive">📦</button>`
+                    }
                     <button class="btn-icon" onclick='editSongById(${song.id})' title="Edit">✏️</button>
                     <button class="btn-icon" onclick="deleteSong(${song.id}, '${song.title.replace(/'/g, "\\'")}');" title="Delete">🗑️</button>
                 </div>
