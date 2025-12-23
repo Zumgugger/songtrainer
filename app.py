@@ -21,6 +21,7 @@ from database import (
     ensure_repertoire_notes_column,
     ensure_practice_date_log_table,
     ensure_duration_column,
+    ensure_repertoire_copy_tracking_columns,
     ensure_users_table,
     ensure_remember_tokens_table,
     ensure_default_admin,
@@ -169,6 +170,11 @@ def _ensure_database_schema(app):
         
         try:
             ensure_duration_column()
+        except Exception:
+            pass
+        
+        try:
+            ensure_repertoire_copy_tracking_columns()
         except Exception:
             pass
         

@@ -584,3 +584,18 @@ def ensure_duration_column():
         if 'duration' not in colnames:
             cursor.execute('ALTER TABLE songs ADD COLUMN duration INTEGER')
             print('Added duration column to songs table')
+
+def ensure_repertoire_copy_tracking_columns():
+    """Ensure repertoires table has columns for tracking repertoire copies."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(repertoires)').fetchall()
+        colnames = {c['name'] for c in cols}
+        
+        if 'copied_from_user_id' not in colnames:
+            cursor.execute('ALTER TABLE repertoires ADD COLUMN copied_from_user_id INTEGER')
+            print('Added copied_from_user_id column to repertoires table')
+        
+        if 'copied_date' not in colnames:
+            cursor.execute('ALTER TABLE repertoires ADD COLUMN copied_date TEXT')
+            print('Added copied_date column to repertoires table')

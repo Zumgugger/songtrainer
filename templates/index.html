@@ -196,6 +196,11 @@
         <div class="modal-content">
             <span class="close" id="closeRepertoireModal">&times;</span>
             <h2 id="repertoireModalTitle">Add Repertoire</h2>
+            
+            <div id="repertoireCopyInfo" style="display:none; padding: 10px; background-color: #ecf0f1; border-radius: 5px; margin-bottom: 15px; font-size: 0.9rem; color: #34495e;">
+                📋 <span id="copyInfoText"></span>
+            </div>
+            
             <form id="repertoireForm">
                 <input type="hidden" id="repertoireId">
                 
@@ -234,6 +239,17 @@
                         <button type="button" class="btn btn-success" onclick="generateSetlistPDF()">📄 Generate PDF</button>
                     </div>
                     <small style="color: var(--text-muted);">Leave empty to include all songs, or enter a number to include songs 1 to N.</small>
+                </div>
+
+                <div class="form-group" id="shareRepertoireSection" style="display:none;">
+                    <label>Share Repertoire with Another User</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <select id="shareTargetUser" style="flex: 1; padding: 8px;">
+                            <option value="">Select user...</option>
+                        </select>
+                        <button type="button" class="btn btn-primary" onclick="shareRepertoire()">👥 Share</button>
+                    </div>
+                    <small style="color: var(--text-muted);">Creates a copy of this repertoire (including all songs and skills) for the selected user.</small>
                 </div>
 
                 <div class="form-actions">

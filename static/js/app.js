@@ -1513,6 +1513,9 @@ function openRepertoireModal(repertoire = null) {
     const deleteBtn = document.getElementById('deleteRepertoireBtn');
     const syncBtn = document.getElementById('syncRepertoireBtn');
     const undoSyncBtn = document.getElementById('undoSyncBtn');
+    const copyInfoDiv = document.getElementById('repertoireCopyInfo');
+    const copyInfoText = document.getElementById('copyInfoText');
+    const shareSection = document.getElementById('shareRepertoireSection');
     
     form.reset();
     
@@ -1522,6 +1525,14 @@ function openRepertoireModal(repertoire = null) {
         document.getElementById('repertoireName').value = repertoire.name;
         document.getElementById('mp3Folder').value = repertoire.mp3_folder || '';
         document.getElementById('sheetFolder').value = repertoire.sheet_folder || '';
+        
+        // Show copy info if this repertoire was copied
+        if (repertoire.copied_from_user_id && repertoire.copied_date) {
+            loadCopyInfo(repertoire.copied_from_user_id, repertoire.copied_date);
+            copyInfoDiv.style.display = 'block';
+        } else {
+            copyInfoDiv.style.display = 'none';
+        }
         
         // Check the default skills for this repertoire
         const defaultSkillIds = repertoire.default_skills.map(s => s.id);
@@ -1555,9 +1566,16 @@ function openRepertoireModal(repertoire = null) {
         if (setlistSection) {
             setlistSection.style.display = 'block';
         }
+        
+        // Show share section and load users for existing repertoires
+        if (shareSection) {
+            shareSection.style.display = 'block';
+            loadUsersForShare();
+        }
     } else {
         title.textContent = 'Add Repertoire';
         document.getElementById('repertoireId').value = '';
+        copyInfoDiv.style.display = 'none';
         
         // Check all skills by default for new repertoires
         skills.forEach(skill => {
@@ -1578,14 +1596,88 @@ function openRepertoireModal(repertoire = null) {
             undoSyncBtn.style.display = 'none';
         }
         
-        // Hide setlist section for new repertoires
+        // Hide setlist and share sections for new repertoires
         const setlistSection = document.getElementById('setlistSection');
         if (setlistSection) {
             setlistSection.style.display = 'none';
         }
+        if (shareSection) {
+            shareSection.style.display = 'none';
+        }
     }
     
     modal.style.display = 'block';
+}
+
+async function loadCopyInfo(userId, copiedDate) {
+    try {
+        const response = await fetch(`/api/users/${userId}`);
+        if (response.ok) {
+            const user = await response.json();
+            const date = new Date(copiedDate).toLocaleDateString();
+            document.getElementById('copyInfoText').textContent = `Copied from ${user.email} on ${date}`;
+        }
+    } catch (error) {
+        console.error('Error loading copy info:', error);
+    }
+}
+
+async function loadUsersForShare() {
+    try {
+        const response = await fetch('/api/users');
+        if (response.ok) {
+            const users = await response.json();
+            const select = document.getElementById('shareTargetUser');
+            select.innerHTML = '<option value="">Select user...</option>';
+            
+            // Filter out current user
+            const otherUsers = users.filter(u => u.id !== currentUser.id);
+            otherUsers.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.id;
+                option.textContent = `${user.email}${user.role === 'admin' ? ' (Admin)' : ''}`;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading users:', error);
+    }
+}
+
+async function shareRepertoire() {
+    const repertoireId = document.getElementById('repertoireId').value;
+    const targetUserId = document.getElementById('shareTargetUser').value;
+    
+    if (!targetUserId) {
+        alert('Please select a user to share with');
+        return;
+    }
+    
+    const targetUserText = document.getElementById('shareTargetUser').options[document.getElementById('shareTargetUser').selectedIndex].text;
+    
+    if (!confirm(`Share this repertoire with ${targetUserText}?\n\nThis will create a copy including all songs and their skills.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/repertoires/${repertoireId}/share`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target_user_id: parseInt(targetUserId) })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            alert(result.message + `\n${result.songs_copied} songs copied.`);
+            document.getElementById('shareTargetUser').selectedIndex = 0;
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Error sharing repertoire');
+        }
+    } catch (error) {
+        console.error('Error sharing repertoire:', error);
+        alert('Error sharing repertoire');
+    }
 }
 
 function closeRepertoireModal() {

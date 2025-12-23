@@ -240,6 +240,103 @@ def delete_repertoire(repertoire_id):
         })
 
 
+@repertoires_bp.route('/api/repertoires/<int:repertoire_id>/share', methods=['POST'])
+@login_required
+def share_repertoire(repertoire_id):
+    """Share/copy a repertoire to another user"""
+    data = request.json or {}
+    target_user_id = data.get('target_user_id')
+    
+    if not target_user_id:
+        return jsonify({'error': 'target_user_id is required'}), 400
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Verify source repertoire ownership
+        source_rep = require_repertoire(cursor, repertoire_id, g.current_user['id'])
+        
+        # Verify target user exists
+        target_user = cursor.execute(
+            'SELECT id, email FROM users WHERE id = ?',
+            (target_user_id,)
+        ).fetchone()
+        if not target_user:
+            return jsonify({'error': 'Target user not found'}), 404
+        
+        # Create new repertoire for target user
+        now = datetime.now().isoformat()
+        cursor.execute('''
+            INSERT INTO repertoires (
+                name, date_created, user_id, sort_order,
+                songlist_folder, mp3_folder, sheet_folder, notes,
+                copied_from_user_id, copied_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            source_rep['name'],
+            now,
+            target_user_id,
+            0,  # Place at top
+            source_rep['songlist_folder'],
+            source_rep['mp3_folder'],
+            source_rep['sheet_folder'],
+            source_rep['notes'],
+            g.current_user['id'],
+            now
+        ))
+        new_rep_id = cursor.lastrowid
+        
+        # Copy songs (excluding performance_hints, practice data)
+        songs = cursor.execute(
+            'SELECT * FROM songs WHERE repertoire_id = ? AND user_id = ?',
+            (repertoire_id, g.current_user['id'])
+        ).fetchall()
+        
+        song_id_map = {}  # Map old song ID to new song ID
+        for song in songs:
+            cursor.execute('''
+                INSERT INTO songs (
+                    title, artist, repertoire_id, user_id, song_number,
+                    audio_path, chart_path, priority, practice_target,
+                    release_date, notes, difficulty
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                song['title'],
+                song['artist'],
+                new_rep_id,
+                target_user_id,
+                song['song_number'],
+                song['audio_path'],
+                song['chart_path'],
+                song['priority'],
+                song['practice_target'] or 1,
+                song['release_date'],
+                song['notes'],
+                song['difficulty']
+            ))
+            new_song_id = cursor.lastrowid
+            song_id_map[song['id']] = new_song_id
+        
+        # Copy song skills (individual song skills, not repertoire skills)
+        for old_song_id, new_song_id in song_id_map.items():
+            song_skills = cursor.execute(
+                'SELECT skill_id FROM song_skills WHERE song_id = ?',
+                (old_song_id,)
+            ).fetchall()
+            
+            for sk in song_skills:
+                cursor.execute(
+                    'INSERT INTO song_skills (song_id, skill_id, is_mastered) VALUES (?, ?, 0)',
+                    (new_song_id, sk['skill_id'])
+                )
+        
+        return jsonify({
+            'message': f'Repertoire shared with {target_user["email"]}',
+            'new_repertoire_id': new_rep_id,
+            'songs_copied': len(songs)
+        }), 201
+
+
 @repertoires_bp.route('/api/repertoires/reorder', methods=['POST'])
 @login_required
 def reorder_repertoires():
