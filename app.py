@@ -872,6 +872,9 @@ def update_song(song_id):
             for i, sid in enumerate(ids, start=1):
                 cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, sid))
 
+        target = data.get('practice_target', 0)
+        target = max(1, target) if target else 1  # Enforce minimum of 1
+        
         cursor.execute('''
             UPDATE songs
             SET title = ?, artist = ?, song_number = ?, priority = ?, 
@@ -882,7 +885,7 @@ def update_song(song_id):
             data.get('artist'),
             new_number,
             data.get('priority', 'mid'),
-            data.get('practice_target', 0),
+            target,
             data.get('release_date'),
             data.get('notes', ''),
             data.get('performance_hints', ''),
@@ -1013,7 +1016,7 @@ def toggle_skill(song_id, skill_id):
         )
 
         # If skill has just been mastered, reduce practice_target by 1,
-        # but never below current practice_count
+        # but never below current practice_count or minimum of 1
         if new_status == 1:
             row = cursor.execute(
                 'SELECT practice_count, practice_target FROM songs WHERE id = ?',
@@ -1022,7 +1025,7 @@ def toggle_skill(song_id, skill_id):
             if row is not None:
                 pc = row['practice_count'] or 0
                 pt = row['practice_target'] or 0
-                new_target = max(pc, pt - 1)
+                new_target = max(1, max(pc, pt - 1))  # Enforce minimum of 1
                 if new_target != pt:
                     cursor.execute(
                         'UPDATE songs SET practice_target = ? WHERE id = ?',
