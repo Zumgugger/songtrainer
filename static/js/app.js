@@ -440,6 +440,12 @@ function showMoveToRepertoireModal(songId, songTitle) {
     
     document.body.appendChild(modal);
     
+    // Prevent clicks on modal content from closing the modal
+    const modalContent = modal.querySelector('.modal-content');
+    modalContent.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
+    
     // Close on background click
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeModal();
