@@ -309,33 +309,14 @@ def share_repertoire(repertoire_id):
                 song['audio_path'],
                 song['chart_path'],
                 song['priority'],
-                song['practice_target'] or 1,
+                1,  # Default practice_target, not copied
                 song['release_date'],
                 song['notes'],
                 song['difficulty'],
                 now  # Use current timestamp for date_added
             ))
-                song['priority'],
-                song['practice_target'] or 1,
-                song['release_date'],
-                song['notes'],
-                song['difficulty']
-            ))
             new_song_id = cursor.lastrowid
             song_id_map[song['id']] = new_song_id
-        
-        # Copy song skills (individual song skills, not repertoire skills)
-        for old_song_id, new_song_id in song_id_map.items():
-            song_skills = cursor.execute(
-                'SELECT skill_id FROM song_skills WHERE song_id = ?',
-                (old_song_id,)
-            ).fetchall()
-            
-            for sk in song_skills:
-                cursor.execute(
-                    'INSERT INTO song_skills (song_id, skill_id, is_mastered) VALUES (?, ?, 0)',
-                    (new_song_id, sk['skill_id'])
-                )
         
         return jsonify({
             'message': f'Repertoire shared with {target_user["email"]}',

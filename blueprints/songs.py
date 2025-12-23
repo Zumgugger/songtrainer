@@ -304,6 +304,10 @@ def update_song(song_id):
             current_skills_dict = {row['skill_id']: row['is_mastered'] for row in current_skills}
 
             selected_ids = set(data['skill_ids'])
+            
+            # Calculate number of new skills being added
+            new_skills_count = len(selected_ids - set(current_skills_dict.keys()))
+            
             cursor.execute('DELETE FROM song_skills WHERE song_id = ? AND skill_id NOT IN ({})'.format(
                 ','.join('?' * len(selected_ids)) if selected_ids else 'NULL'
             ), [song_id] + list(selected_ids) if selected_ids else [song_id])
@@ -313,6 +317,13 @@ def update_song(song_id):
                 cursor.execute(
                     'INSERT OR REPLACE INTO song_skills (song_id, skill_id, is_mastered) VALUES (?, ?, ?)',
                     (song_id, skill_id, is_mastered)
+                )
+            
+            # Increment practice_target by the number of new skills added
+            if new_skills_count > 0:
+                cursor.execute(
+                    'UPDATE songs SET practice_target = practice_target + ? WHERE id = ?',
+                    (new_skills_count, song_id)
                 )
 
         return jsonify({'message': 'Song updated successfully'})
