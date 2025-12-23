@@ -298,8 +298,8 @@ def share_repertoire(repertoire_id):
                 INSERT INTO songs (
                     title, artist, repertoire_id, user_id, song_number,
                     audio_path, chart_path, priority, practice_target,
-                    release_date, notes, difficulty
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    release_date, notes, difficulty, date_added
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 song['title'],
                 song['artist'],
@@ -308,6 +308,13 @@ def share_repertoire(repertoire_id):
                 song['song_number'],
                 song['audio_path'],
                 song['chart_path'],
+                song['priority'],
+                song['practice_target'] or 1,
+                song['release_date'],
+                song['notes'],
+                song['difficulty'],
+                now  # Use current timestamp for date_added
+            ))
                 song['priority'],
                 song['practice_target'] or 1,
                 song['release_date'],

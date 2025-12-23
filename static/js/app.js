@@ -1630,8 +1630,11 @@ async function loadUsersForShare() {
             const select = document.getElementById('shareTargetUser');
             select.innerHTML = '<option value="">Select user...</option>';
             
-            // Filter out current user
-            const otherUsers = users.filter(u => u.id !== currentUser.id);
+            // Filter out current user (if currentUser is loaded)
+            const otherUsers = currentUser 
+                ? users.filter(u => u.id !== currentUser.id)
+                : users;
+            
             otherUsers.forEach(user => {
                 const option = document.createElement('option');
                 option.value = user.id;
