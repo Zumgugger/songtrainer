@@ -418,55 +418,27 @@ function isInArchive() {
     return currentRep && currentRep.name === 'Archive';
 }
 
-function showMoveToRepertoireModal(songId, songTitle) {
-    const currentRep = repertoires.find(r => r.id === currentRepertoireId);
+function createMoveToRepertoireDropdown(songId) {
     const otherRepertoires = repertoires.filter(r => r.id !== currentRepertoireId);
-    
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-        <div class="modal-content" style="max-width: 400px;">
-            <h3>Move "${songTitle}" to:</h3>
-            <div class="repertoire-list" style="display: flex; flex-direction: column; gap: 10px; margin: 20px 0;">
-                ${otherRepertoires.map(rep => `
-                    <button class="btn" style="width: 100%; padding: 12px;" onclick="moveSongToRepertoire(${songId}, ${rep.id})">
-                        ${rep.name}
-                    </button>
-                `).join('')}
-            </div>
-            <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-        </div>
+    return `
+        <select class="move-repertoire-select" onchange="moveSongToRepertoire(${songId}, this.value); this.selectedIndex = 0;" style="padding: 4px 8px; font-size: 14px;">
+            <option value="">Move to...</option>
+            ${otherRepertoires.map(rep => `<option value="${rep.id}">${rep.name}</option>`).join('')}
+        </select>
     `;
-    
-    document.body.appendChild(modal);
-    
-    // Prevent clicks on modal content from closing the modal
-    const modalContent = modal.querySelector('.modal-content');
-    modalContent.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
-    
-    // Close on background click
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) closeModal();
-    });
-}
-
-function closeModal() {
-    const modal = document.querySelector('.modal-overlay');
-    if (modal) modal.remove();
 }
 
 async function moveSongToRepertoire(songId, repertoireId) {
+    if (!repertoireId) return; // Ignore if no selection
+    
     try {
         const response = await fetch(`/api/songs/${songId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ repertoire_id: repertoireId })
+            body: JSON.stringify({ repertoire_id: parseInt(repertoireId) })
         });
         
         if (response.ok) {
-            closeModal();
             loadSongs();
         } else {
             const data = await response.json();
@@ -921,7 +893,7 @@ function createSongCard(song) {
                     <button class="btn-icon attach-btn" onclick="attachChart(${song.id})" title="Attach chart">📄➕</button>
                     ${song.chart_path ? `<button class="btn-icon" onclick="removeChart(${song.id})" title="Remove chart link">🗑️📄</button>` : ''}
                     ${isInArchive() 
-                        ? `<button class="btn-icon" onclick="showMoveToRepertoireModal(${song.id}, '${song.title.replace(/'/g, "\\'")}')" title="Move to repertoire">📋</button>`
+                        ? createMoveToRepertoireDropdown(song.id)
                         : `<button class="btn-icon" onclick="archiveSong(${song.id}, '${song.title.replace(/'/g, "\\'")}')" title="Move to Archive">📦</button>`
                     }
                     <button class="btn-icon" onclick='editSongById(${song.id})' title="Edit">✏️</button>
