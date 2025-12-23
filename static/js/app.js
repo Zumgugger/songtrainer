@@ -439,7 +439,7 @@ async function moveSongToRepertoire(songId, repertoireId) {
         });
         
         if (response.ok) {
-            loadSongs();
+            await loadRepertoires();
         } else {
             const data = await response.json();
             alert(data.error || 'Failed to move song');
@@ -459,7 +459,7 @@ async function archiveSong(songId, title) {
         });
         
         if (response.ok) {
-            loadSongs();
+            await loadRepertoires();
         } else {
             const data = await response.json();
             alert(data.error || 'Failed to archive song');
@@ -479,7 +479,7 @@ async function deleteSong(songId, title) {
         });
         
         if (response.ok) {
-            loadSongs();
+            await loadRepertoires();
         }
     } catch (error) {
         console.error('Error deleting song:', error);
