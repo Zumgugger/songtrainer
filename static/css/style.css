@@ -109,14 +109,13 @@ header h1 {
     background: var(--bg-card);
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
-    overflow-x: auto;
 }
 
 .tabs {
     display: flex;
     gap: 8px;
     flex: 1;
-    overflow-x: auto;
+    flex-wrap: wrap;
 }
 
 .tab {

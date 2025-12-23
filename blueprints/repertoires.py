@@ -240,6 +240,60 @@ def delete_repertoire(repertoire_id):
         })
 
 
+@repertoires_bp.route('/api/repertoires/<int:repertoire_id>/archive', methods=['POST'])
+@login_required
+def archive_repertoire(repertoire_id):
+    """Move all songs from a repertoire to Archive and delete the repertoire"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Verify source repertoire ownership
+        source_rep = require_repertoire(cursor, repertoire_id, g.current_user['id'])
+        
+        # Prevent archiving the Archive itself
+        if source_rep['name'] == 'Archive':
+            return jsonify({'error': 'Cannot archive the Archive repertoire'}), 400
+        
+        # Get or create Archive repertoire for this user
+        archive_rep = cursor.execute(
+            'SELECT id FROM repertoires WHERE user_id = ? AND name = ?',
+            (g.current_user['id'], 'Archive')
+        ).fetchone()
+        
+        if not archive_rep:
+            return jsonify({'error': 'Archive repertoire not found'}), 404
+        
+        archive_id = archive_rep['id']
+        
+        # Get max song_number in Archive to append songs
+        max_number_row = cursor.execute(
+            'SELECT MAX(song_number) as max_num FROM songs WHERE repertoire_id = ?',
+            (archive_id,)
+        ).fetchone()
+        next_number = (max_number_row['max_num'] or 0) + 1
+        
+        # Get all songs from source repertoire
+        songs = cursor.execute(
+            'SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number',
+            (repertoire_id,)
+        ).fetchall()
+        
+        # Move songs to Archive
+        for i, song in enumerate(songs):
+            cursor.execute(
+                'UPDATE songs SET repertoire_id = ?, song_number = ? WHERE id = ?',
+                (archive_id, next_number + i, song['id'])
+            )
+        
+        # Delete the now-empty repertoire
+        cursor.execute('DELETE FROM repertoires WHERE id = ?', (repertoire_id,))
+        
+        return jsonify({
+            'message': f'Moved {len(songs)} song(s) to Archive and deleted repertoire "{source_rep["name"]}"',
+            'songs_moved': len(songs)
+        }), 200
+
+
 @repertoires_bp.route('/api/repertoires/<int:repertoire_id>/share', methods=['POST'])
 @login_required
 def share_repertoire(repertoire_id):

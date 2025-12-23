@@ -1561,6 +1561,15 @@ function openRepertoireModal(repertoire = null) {
             undoSyncBtn.onclick = () => undoLastSync(repertoire.id);
         }
         
+        // Show move to archive button for existing repertoires (but not for Archive itself)
+        const moveToArchiveBtn = document.getElementById('moveToArchiveBtn');
+        if (moveToArchiveBtn && repertoire.name !== 'Archive') {
+            moveToArchiveBtn.style.display = 'inline-block';
+            moveToArchiveBtn.onclick = () => moveRepertoireToArchive(repertoire.id);
+        } else if (moveToArchiveBtn) {
+            moveToArchiveBtn.style.display = 'none';
+        }
+        
         // Show setlist PDF section for existing repertoires
         const setlistSection = document.getElementById('setlistSection');
         if (setlistSection) {
@@ -1769,6 +1778,38 @@ async function deleteRepertoire() {
     } catch (error) {
         console.error('Error deleting repertoire:', error);
         alert('Error deleting repertoire');
+    }
+}
+
+async function moveRepertoireToArchive(repertoireId) {
+    const repertoire = repertoires.find(r => r.id === parseInt(repertoireId));
+    if (!repertoire) return;
+    
+    const confirmMsg = `Move all songs from "${repertoire.name}" to Archive?\n\nThis will move all ${repertoire.song_count} song(s) to your Archive repertoire and delete the "${repertoire.name}" repertoire.\n\nThis cannot be undone.`;
+    
+    if (!confirm(confirmMsg)) return;
+    
+    try {
+        const response = await fetch(`/api/repertoires/${repertoireId}/archive`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            alert(result.message || 'Repertoire moved to archive');
+            closeRepertoireModal();
+            // If we archived the current repertoire, switch to first available
+            if (currentRepertoireId === parseInt(repertoireId)) {
+                currentRepertoireId = null;
+            }
+            loadRepertoires();
+        } else {
+            const error = await response.json();
+            alert(error.error || 'Error moving repertoire to archive');
+        }
+    } catch (error) {
+        console.error('Error moving repertoire to archive:', error);
+        alert('Error moving repertoire to archive');
     }
 }
 

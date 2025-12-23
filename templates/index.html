@@ -252,12 +252,17 @@
                     <small style="color: var(--text-muted);">Creates a copy of this repertoire (including all songs and skills) for the selected user.</small>
                 </div>
 
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Save</button>
-                    <button type="button" class="btn btn-secondary" id="cancelRepertoireBtn">Cancel</button>
-                    <button type="button" class="btn btn-success" id="syncRepertoireBtn" style="display:none;">🔄 Sync Folders</button>
-                    <button type="button" class="btn btn-warning" id="undoSyncBtn" style="display:none;">↩️ Undo Last Sync</button>
-                    <button type="button" class="btn btn-danger" id="deleteRepertoireBtn" style="margin-left: auto;">Delete Repertoire</button>
+                <div class="form-actions" style="display: flex; flex-direction: column; gap: 10px;">
+                    <div style="display: flex; gap: 10px;">
+                        <button type="button" class="btn btn-success" id="syncRepertoireBtn" style="display:none;">🔄 Sync Folders</button>
+                        <button type="button" class="btn btn-warning" id="undoSyncBtn" style="display:none;">↩️ Undo Last Sync</button>
+                        <button type="button" class="btn btn-danger" id="moveToArchiveBtn" style="display:none;">📦 Move to Archive</button>
+                        <button type="button" class="btn btn-danger" id="deleteRepertoireBtn" style="display:none;">Delete Repertoire</button>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="button" class="btn btn-secondary" id="cancelRepertoireBtn">Cancel</button>
+                    </div>
                 </div>
             </form>
         </div>
