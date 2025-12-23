@@ -793,6 +793,21 @@ def create_song():
         repertoire = _require_repertoire(cursor, data.get('repertoire_id'), g.current_user['id'])
         user_id = repertoire['user_id']
 
+        # Determine initial practice target: number of skills to learn + 1
+        initial_target = None
+        try:
+            if 'skill_ids' in data and isinstance(data['skill_ids'], list):
+                initial_target = max(1, len(data['skill_ids']) + 1)
+            else:
+                row = cursor.execute(
+                    'SELECT COUNT(*) AS c FROM repertoire_skills WHERE repertoire_id = ?',
+                    (repertoire['id'],)
+                ).fetchone()
+                default_skill_count = row['c'] if row else 0
+                initial_target = max(1, default_skill_count + 1)
+        except Exception:
+            initial_target = data.get('practice_target', 0) or 1
+
         cursor.execute('''
             INSERT INTO songs (title, artist, song_number, repertoire_id, user_id, priority, practice_target, date_added, release_date, notes, performance_hints)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -803,7 +818,7 @@ def create_song():
             repertoire['id'],
             user_id,
             data.get('priority', 'mid'),
-            data.get('practice_target', 0),
+            initial_target,
             datetime.now().isoformat(),
             data.get('release_date'),
             data.get('notes', ''),
@@ -996,6 +1011,23 @@ def toggle_skill(song_id, skill_id):
             'UPDATE song_skills SET is_mastered = ? WHERE song_id = ? AND skill_id = ?',
             (new_status, song_id, skill_id)
         )
+
+        # If skill has just been mastered, reduce practice_target by 1,
+        # but never below current practice_count
+        if new_status == 1:
+            row = cursor.execute(
+                'SELECT practice_count, practice_target FROM songs WHERE id = ?',
+                (song_id,)
+            ).fetchone()
+            if row is not None:
+                pc = row['practice_count'] or 0
+                pt = row['practice_target'] or 0
+                new_target = max(pc, pt - 1)
+                if new_target != pt:
+                    cursor.execute(
+                        'UPDATE songs SET practice_target = ? WHERE id = ?',
+                        (new_target, song_id)
+                    )
 
         return jsonify({'is_mastered': new_status})
 
@@ -1584,6 +1616,14 @@ def sync_repertoire_folders(repertoire_id):
                         # Extract duration from MP3
                         duration = _extract_mp3_duration(mp3_path)
                         
+                        # Determine initial target based on default skills (+1)
+                        default_count_row = cursor.execute(
+                            'SELECT COUNT(*) AS c FROM repertoire_skills WHERE repertoire_id = ?',
+                            (repertoire_id,)
+                        ).fetchone()
+                        default_skill_count = default_count_row['c'] if default_count_row else 0
+                        initial_target = max(1, default_skill_count + 1)
+
                         # Create new song with MP3 linked
                         cursor.execute('''
                             INSERT INTO songs (
@@ -1592,7 +1632,7 @@ def sync_repertoire_folders(repertoire_id):
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (
                             title, artist, max_num + 1, repertoire_id, rep['user_id'],
-                            'mid', 0, 5, datetime.now().isoformat(), mp3_path, release_year, duration
+                            'mid', 0, initial_target, datetime.now().isoformat(), mp3_path, release_year, duration
                         ))
                         
                         song_id = cursor.lastrowid
