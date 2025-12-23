@@ -413,6 +413,26 @@ async function toggleSkill(songId, skillId) {
     }
 }
 
+async function archiveSong(songId, title) {
+    if (!confirm(`Move "${title}" to Archive?`)) return;
+    
+    try {
+        const response = await fetch(`/api/songs/${songId}/archive`, {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            loadSongs();
+        } else {
+            const data = await response.json();
+            alert(data.error || 'Failed to archive song');
+        }
+    } catch (error) {
+        console.error('Error archiving song:', error);
+        alert('Failed to archive song');
+    }
+}
+
 async function deleteSong(songId, title) {
     if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
     
@@ -835,6 +855,7 @@ function createSongCard(song) {
                     ${song.audio_path ? `<button class="btn-icon" onclick="removeAudio(${song.id})" title="Remove audio link">🗑️🎧</button>` : ''}
                     <button class="btn-icon attach-btn" onclick="attachChart(${song.id})" title="Attach chart">📄➕</button>
                     ${song.chart_path ? `<button class="btn-icon" onclick="removeChart(${song.id})" title="Remove chart link">🗑️📄</button>` : ''}
+                    <button class="btn-icon" onclick="archiveSong(${song.id}, '${song.title.replace(/'/g, "\\'")}')" title="Move to Archive">📦</button>
                     <button class="btn-icon" onclick='editSongById(${song.id})' title="Edit">✏️</button>
                     <button class="btn-icon" onclick="deleteSong(${song.id}, '${song.title.replace(/'/g, "\\'")}');" title="Delete">🗑️</button>
                 </div>

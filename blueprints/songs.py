@@ -178,6 +178,39 @@ def create_song():
 
         return jsonify({'id': song_id, 'message': 'Song created successfully'}), 201
 
+@songs_bp.route('/api/songs/<int:song_id>/archive', methods=['POST'])
+@login_required
+def archive_song(song_id):
+    """Move a song to the Archive repertoire"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Verify song ownership
+        song = require_song(cursor, song_id, g.current_user['id'])
+        
+        # Find the Archive repertoire for this user
+        archive = cursor.execute(
+            'SELECT id FROM repertoires WHERE user_id = ? AND name = ?',
+            (g.current_user['id'], 'Archive')
+        ).fetchone()
+        
+        if not archive:
+            return jsonify({'error': 'Archive repertoire not found'}), 404
+        
+        archive_id = archive['id']
+        
+        # Don't move if already in Archive
+        if song['repertoire_id'] == archive_id:
+            return jsonify({'message': 'Song is already in Archive'}), 200
+        
+        # Move the song to Archive
+        cursor.execute(
+            'UPDATE songs SET repertoire_id = ? WHERE id = ?',
+            (archive_id, song_id)
+        )
+        
+        return jsonify({'message': 'Song moved to Archive'}), 200
+
 @songs_bp.route('/api/songs/<int:song_id>', methods=['PUT'])
 @login_required
 def update_song(song_id):
