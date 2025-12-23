@@ -82,7 +82,7 @@ def init_db():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS repertoires (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
                 date_created TEXT NOT NULL,
                 user_id INTEGER NOT NULL,
                 sort_order INTEGER,
