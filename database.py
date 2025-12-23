@@ -485,6 +485,37 @@ def ensure_sync_history_table():
         ''')
         print('Ensured sync_history table exists')
 
+
+def ensure_archive_repertoires():
+    """Ensure each user has an Archive repertoire for unassigned songs."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Get all users
+        users = cursor.execute('SELECT id FROM users').fetchall()
+        
+        for user in users:
+            user_id = user['id']
+            
+            # Check if user already has an Archive repertoire
+            archive = cursor.execute(
+                'SELECT id FROM repertoires WHERE user_id = ? AND name = ?',
+                (user_id, 'Archive')
+            ).fetchone()
+            
+            if not archive:
+                # Create Archive repertoire for this user
+                now = datetime.now().isoformat()
+                cursor.execute(
+                    '''INSERT INTO repertoires (name, date_created, user_id, sort_order)
+                       VALUES (?, ?, ?, ?)''',
+                    ('Archive', now, user_id, 0)
+                )
+                print(f'Created Archive repertoire for user {user_id}')
+        
+        conn.commit()
+
+
 if __name__ == '__main__':
     init_db()
     ensure_users_table()
@@ -505,6 +536,7 @@ if __name__ == '__main__':
     ensure_practice_date_log_table()
     ensure_duration_column()
     ensure_sync_history_table()
+    ensure_archive_repertoires()
 
 def ensure_repertoire_notes_column():
     """Ensure repertoires table has notes column for storing repertoire-specific notes."""

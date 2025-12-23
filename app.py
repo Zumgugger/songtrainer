@@ -26,6 +26,7 @@ from database import (
     ensure_default_admin,
     ensure_repertoire_user_column,
     ensure_song_user_column,
+    ensure_archive_repertoires,
 )
 
 # Import blueprints
@@ -168,6 +169,11 @@ def _ensure_database_schema(app):
         
         try:
             ensure_duration_column()
+        except Exception:
+            pass
+        
+        try:
+            ensure_archive_repertoires()
         except Exception:
             pass
 
