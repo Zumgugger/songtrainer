@@ -984,14 +984,18 @@ function updateProgressDetails() {
         practiceText.textContent = `${totalPracticeCount} / ${totalPracticeTarget} songs practiced`;
     }
     
-    // Fetch and display time practiced since Christmas
+    // Fetch and display time practiced since per-user start date
     if (currentRepertoireId) {
         fetch(`/api/repertoires/${currentRepertoireId}/time-practiced`)
             .then(r => r.json())
             .then(data => {
                 const timeText = document.getElementById('timePracticedText');
+                const headerEl = document.getElementById('timePracticedHeader');
                 if (timeText) {
                     timeText.textContent = data.formatted;
+                }
+                if (headerEl && data.start_date) {
+                    headerEl.textContent = `Time practiced since ${data.start_date}`;
                 }
             })
             .catch(err => console.error('Failed to fetch time practiced:', err));

@@ -1370,13 +1370,35 @@ def get_repertoires():
 @app.route('/api/repertoires/<int:repertoire_id>/time-practiced', methods=['GET'])
 @login_required
 def get_repertoire_time_practiced(repertoire_id):
-    """Get time practiced for a repertoire since Christmas 2025"""
+    """Get time practiced for a repertoire since a per-user start date.
+    Current user: start today. Other users: start from their first practice in this repertoire (or today if none)."""
     requested_user_id = request.args.get('user_id', type=int)
     scope_user_id = _resolve_scope_user_id(requested_user_id)
-    
-    start_date = '2025-12-25'  # Christmas 2025
+    today = datetime.now().date()
+    today_str = today.strftime('%Y-%m-%d')
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        # Find earliest practice date for this user in this repertoire
+        earliest = cursor.execute(
+            '''
+            SELECT MIN(pl.practice_date) AS first_date
+            FROM practice_date_log pl
+            JOIN songs s ON s.id = pl.song_id
+            WHERE pl.user_id = ? AND s.repertoire_id = ?
+            ''',
+            (scope_user_id, repertoire_id)
+        ).fetchone()
+        first_date = earliest['first_date'] if earliest else None
+
+    # For the current user, always start today (requested behavior)
+    if getattr(g, 'current_user', None) and g.current_user['id'] == scope_user_id:
+        start_date = today_str
+    else:
+        start_date = first_date or today_str
+
     time_data = _calculate_time_practiced_since(start_date, repertoire_id, scope_user_id)
-    
+    time_data['start_date'] = start_date
     return jsonify(time_data)
 
 @app.route('/api/repertoires', methods=['POST'])
