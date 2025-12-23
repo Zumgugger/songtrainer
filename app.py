@@ -1398,7 +1398,15 @@ def get_repertoire_time_practiced(repertoire_id):
         start_date = first_date or today_str
 
     time_data = _calculate_time_practiced_since(start_date, repertoire_id, scope_user_id)
-    time_data['start_date'] = start_date
+    
+    # Format date as DD-MM-YYYY (European format)
+    try:
+        date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+        formatted_date = date_obj.strftime('%d-%m-%Y')
+    except:
+        formatted_date = start_date
+    
+    time_data['start_date'] = formatted_date
     return jsonify(time_data)
 
 @app.route('/api/repertoires', methods=['POST'])
