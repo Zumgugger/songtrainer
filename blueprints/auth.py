@@ -348,6 +348,13 @@ def create_user():
                 (email, generate_password_hash(password), role, now, now)
             )
             user_id = cursor.lastrowid
+            
+            # Create Archive repertoire for new user
+            cursor.execute(
+                'INSERT INTO repertoires (name, date_created, user_id, sort_order) VALUES (?, ?, ?, ?)',
+                ('Archive', now, user_id, 0)
+            )
+            
             return jsonify({'id': user_id, 'message': 'User created'})
         except sqlite3.IntegrityError:
             return jsonify({'error': 'Email already exists'}), 400
