@@ -235,37 +235,43 @@ def update_song(song_id):
             if not new_rep:
                 return jsonify({'error': 'Repertoire not found'}), 404
             
-            # Update the repertoire_id
+            # Get the max song_number in the target repertoire and append
+            max_number_row = cursor.execute(
+                'SELECT MAX(song_number) as max_num FROM songs WHERE repertoire_id = ?',
+                (new_repertoire_id,)
+            ).fetchone()
+            new_number = (max_number_row['max_num'] or 0) + 1
+            
+            # Update the repertoire_id and song_number
             cursor.execute(
-                'UPDATE songs SET repertoire_id = ? WHERE id = ?',
-                (new_repertoire_id, song_id)
+                'UPDATE songs SET repertoire_id = ?, song_number = ? WHERE id = ?',
+                (new_repertoire_id, new_number, song_id)
             )
             repertoire_id = new_repertoire_id
         else:
             repertoire_id = old_repertoire_id
+            new_number = data.get('song_number', old_number)
+            if not isinstance(new_number, int):
+                try:
+                    new_number = int(new_number)
+                except Exception:
+                    new_number = old_number
 
-        new_number = data.get('song_number', old_number)
-        if not isinstance(new_number, int):
-            try:
-                new_number = int(new_number)
-            except Exception:
-                new_number = old_number
+            if old_number != new_number:
+                rows = cursor.execute(
+                    'SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC, id ASC',
+                    (repertoire_id,)
+                ).fetchall()
+                ids = [r['id'] for r in rows if r['id'] != song_id]
+                max_count = len(ids) + 1
+                new_number = max(1, min(new_number, max_count))
+                ids.insert(new_number - 1, song_id)
 
-        if old_number != new_number:
-            rows = cursor.execute(
-                'SELECT id FROM songs WHERE repertoire_id = ? ORDER BY song_number ASC, id ASC',
-                (repertoire_id,)
-            ).fetchall()
-            ids = [r['id'] for r in rows if r['id'] != song_id]
-            max_count = len(ids) + 1
-            new_number = max(1, min(new_number, max_count))
-            ids.insert(new_number - 1, song_id)
-
-            base = 100000
-            for i, sid in enumerate(ids, start=1):
-                cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (base + i, sid))
-            for i, sid in enumerate(ids, start=1):
-                cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, sid))
+                base = 100000
+                for i, sid in enumerate(ids, start=1):
+                    cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (base + i, sid))
+                for i, sid in enumerate(ids, start=1):
+                    cursor.execute('UPDATE songs SET song_number = ? WHERE id = ?', (i, sid))
 
         target = data.get('practice_target', 0)
         target = max(1, target) if target else 1  # Enforce minimum of 1
