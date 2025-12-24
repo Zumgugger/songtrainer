@@ -2013,13 +2013,24 @@ async function generateSetlistPDF() {
     const minSongNumber = document.getElementById('minSongNumber').value;
     const maxSongNumber = document.getElementById('maxSongNumber').value;
     
+    // Get repertoire name for prefilling
+    const repertoire = repertoires.find(r => r.id === parseInt(repertoireId));
+    const defaultTitle = repertoire ? repertoire.name : '';
+    
+    // Prompt for custom title
+    const customTitle = prompt('Enter setlist title (e.g., add venue or date):', defaultTitle);
+    if (customTitle === null) {
+        return; // User cancelled
+    }
+    
     try {
         const response = await fetch(`/api/repertoires/${repertoireId}/setlist-pdf`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 min_song_number: minSongNumber ? parseInt(minSongNumber) : null,
-                max_song_number: maxSongNumber ? parseInt(maxSongNumber) : null
+                max_song_number: maxSongNumber ? parseInt(maxSongNumber) : null,
+                custom_title: customTitle || defaultTitle
             })
         });
         
