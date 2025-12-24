@@ -902,7 +902,8 @@ def lookup_song_metadata():
 @login_required
 def generate_setlist_pdf(repertoire_id):
     """Generate a PDF setlist for a repertoire"""
-    data = request.json
+    data = request.json or {}
+    min_song_number = data.get('min_song_number', None)
     max_song_number = data.get('max_song_number', None)
     
     with get_db() as conn:
@@ -917,21 +918,20 @@ def generate_setlist_pdf(repertoire_id):
         if not repertoire or (g.current_user['role'] != 'admin' and repertoire['user_id'] != g.current_user['id']):
             return jsonify({'error': 'Repertoire not found'}), 404
         
-        # Get songs up to max_song_number
+        # Build query with optional range filters
+        query = 'SELECT song_number, title, performance_hints FROM songs WHERE repertoire_id = ?'
+        params = [repertoire_id]
+        
+        if min_song_number:
+            query += ' AND song_number >= ?'
+            params.append(int(min_song_number))
+        
         if max_song_number:
-            songs = cursor.execute('''
-                SELECT song_number, title, performance_hints
-                FROM songs 
-                WHERE repertoire_id = ? AND song_number <= ?
-                ORDER BY song_number ASC
-            ''', (repertoire_id, max_song_number)).fetchall()
-        else:
-            songs = cursor.execute('''
-                SELECT song_number, title, performance_hints
-                FROM songs 
-                WHERE repertoire_id = ?
-                ORDER BY song_number ASC
-            ''', (repertoire_id,)).fetchall()
+            query += ' AND song_number <= ?'
+            params.append(int(max_song_number))
+        
+        query += ' ORDER BY song_number ASC'
+        songs = cursor.execute(query, params).fetchall()
         
         if not songs:
             return jsonify({'error': 'No songs found'}), 404

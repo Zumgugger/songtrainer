@@ -2049,6 +2049,7 @@ async function generateSetlistPDF() {
         return;
     }
     
+    const minSongNumber = document.getElementById('minSongNumber').value;
     const maxSongNumber = document.getElementById('maxSongNumber').value;
     
     try {
@@ -2056,6 +2057,7 @@ async function generateSetlistPDF() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                min_song_number: minSongNumber ? parseInt(minSongNumber) : null,
                 max_song_number: maxSongNumber ? parseInt(maxSongNumber) : null
             })
         });

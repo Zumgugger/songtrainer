@@ -243,11 +243,13 @@
                 <div class="form-group" id="setlistSection" style="display:none;">
                     <label>Generate Setlist PDF</label>
                     <div style="display: flex; gap: 10px; align-items: center;">
-                        <label for="maxSongNumber" style="margin: 0;">Songs 1 to:</label>
-                        <input type="number" id="maxSongNumber" min="1" placeholder="All" style="width: 100px;">
+                        <label for="minSongNumber" style="margin: 0;">Songs from:</label>
+                        <input type="number" id="minSongNumber" min="1" placeholder="1" style="width: 80px;">
+                        <label for="maxSongNumber" style="margin: 0;">to:</label>
+                        <input type="number" id="maxSongNumber" min="1" placeholder="All" style="width: 80px;">
                         <button type="button" class="btn btn-success" onclick="generateSetlistPDF()">📄 Generate PDF</button>
                     </div>
-                    <small style="color: var(--text-muted);">Leave empty to include all songs, or enter a number to include songs 1 to N.</small>
+                    <small style="color: var(--text-muted);">Leave 'from' blank to start from song 1. Leave 'to' blank to include all remaining songs.</small>
                 </div>
 
                 <div class="form-group" id="shareRepertoireSection" style="display:none;">
