@@ -964,18 +964,19 @@ def generate_setlist_pdf(repertoire_id):
         # Create setlist table data
         table_data = []
         for song in songs:
-            song_text = song['title']
+            # Format: ♠ Song Title ♠ performance notes
+            song_text = f"<b>♠ {song['title']} ♠</b>"
             
-            # Format performance hints
             if song['performance_hints']:
                 # Convert **text** to <b>text</b> for PDF
                 hints = song['performance_hints']
                 hints = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', hints)
-                song_text += f' <font color="#7f8c8d">({hints})</font>'
+                # Add hints without brackets
+                song_text += f" {hints}"
             
             table_data.append([
                 str(song['song_number']),
-                Paragraph(song_text, styles['Normal'])
+                Paragraph(song_text, hints_style)
             ])
         
         # Create table
