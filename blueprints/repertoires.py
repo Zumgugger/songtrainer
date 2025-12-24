@@ -955,6 +955,15 @@ def generate_setlist_pdf(repertoire_id):
             alignment=TA_CENTER
         )
         
+        # Song/hints style - 14pt black text
+        song_style = ParagraphStyle(
+            'SongStyle',
+            parent=styles['Normal'],
+            fontSize=14,
+            textColor=colors.black,
+            fontName='Helvetica'
+        )
+        
         # Add title
         # Add title (use custom title if provided, otherwise repertoire name)
         title_text = custom_title if custom_title else repertoire['name']
@@ -976,7 +985,7 @@ def generate_setlist_pdf(repertoire_id):
             
             table_data.append([
                 str(song['song_number']),
-                Paragraph(song_text, hints_style)
+                Paragraph(song_text, song_style)
             ])
         
         # Create table
