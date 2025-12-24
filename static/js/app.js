@@ -1103,18 +1103,40 @@ function updateProgressDetails() {
         practiceText.textContent = `${totalPracticeCount} / ${totalPracticeTarget} songs practiced`;
     }
     
-    // Fetch and display time practiced since per-user start date
+    // Fetch and display daily and all-time practice data
     if (currentRepertoireId) {
         fetch(`/api/repertoires/${currentRepertoireId}/time-practiced`)
             .then(r => r.json())
             .then(data => {
-                const timeText = document.getElementById('timePracticedText');
-                const headerEl = document.getElementById('timePracticedHeader');
-                if (timeText) {
-                    timeText.textContent = data.formatted;
+                // Update daily practice bar
+                const dailyBar = document.getElementById('dailyProgressBar');
+                const dailyText = document.getElementById('dailyTimeText');
+                if (dailyBar && data.daily) {
+                    const progress = data.daily.progress;
+                    dailyBar.style.width = progress + '%';
+                    dailyBar.textContent = progress + '%';
+                    dailyBar.className = 'progress-bar' + (progress >= 100 ? ' complete' : '');
                 }
-                if (headerEl && data.start_date) {
-                    headerEl.textContent = `Time practiced since ${data.start_date}`;
+                if (dailyText && data.daily) {
+                    dailyText.textContent = `${data.daily.formatted} / 1h goal`;
+                }
+                
+                // Update all-time practice bar
+                const alltimeBar = document.getElementById('alltimeProgressBar');
+                const alltimeText = document.getElementById('alltimeTimeText');
+                const alltimeHeader = document.getElementById('alltimeHeader');
+                if (alltimeBar && data.alltime) {
+                    const progress = data.alltime.progress;
+                    alltimeBar.style.width = progress + '%';
+                    alltimeBar.textContent = progress + '%';
+                    alltimeBar.className = 'progress-bar' + (progress >= 100 ? ' complete' : '');
+                }
+                if (alltimeText && data.alltime) {
+                    const targetHours = data.song_count * 5;
+                    alltimeText.textContent = `${data.alltime.formatted} / ${targetHours}h goal (5h per song)`;
+                }
+                if (alltimeHeader && data.alltime && data.alltime.start_date) {
+                    alltimeHeader.textContent = `Total time practiced since ${data.alltime.start_date}`;
                 }
             })
             .catch(err => console.error('Failed to fetch time practiced:', err));

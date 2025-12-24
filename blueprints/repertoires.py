@@ -91,8 +91,7 @@ def get_repertoires():
 @repertoires_bp.route('/api/repertoires/<int:repertoire_id>/time-practiced', methods=['GET'])
 @login_required
 def get_repertoire_time_practiced(repertoire_id):
-    """Get time practiced for a repertoire since a per-user start date.
-    Current user: start today. Other users: start from their first practice in this repertoire (or today if none)."""
+    """Get time practiced for a repertoire - both today and all-time."""
     requested_user_id = request.args.get('user_id', type=int)
     scope_user_id = resolve_scope_user_id(get_db, requested_user_id)
     today = datetime.now().date()
@@ -111,14 +110,19 @@ def get_repertoire_time_practiced(repertoire_id):
             (scope_user_id, repertoire_id)
         ).fetchone()
         first_date = earliest['first_date'] if earliest else None
+        
+        # Get song count for all-time progress calculation
+        song_count = cursor.execute(
+            'SELECT COUNT(*) as count FROM songs WHERE repertoire_id = ?',
+            (repertoire_id,)
+        ).fetchone()['count']
 
-    # For the current user, always start today (requested behavior)
-    if getattr(g, 'current_user', None) and g.current_user['id'] == scope_user_id:
-        start_date = today_str
-    else:
-        start_date = first_date or today_str
-
-    time_data = calculate_time_practiced_since(get_db, start_date, repertoire_id, scope_user_id)
+    # Calculate today's practice time
+    daily_data = calculate_time_practiced_since(get_db, today_str, repertoire_id, scope_user_id)
+    
+    # Calculate all-time practice (from first practice date or today)
+    start_date = first_date or today_str
+    alltime_data = calculate_time_practiced_since(get_db, start_date, repertoire_id, scope_user_id)
     
     # Format date as DD-MM-YYYY (European format)
     try:
@@ -127,8 +131,28 @@ def get_repertoire_time_practiced(repertoire_id):
     except:
         formatted_date = start_date
     
-    time_data['start_date'] = formatted_date
-    return jsonify(time_data)
+    # Calculate progress percentages
+    # Daily: 1 hour = 100%
+    daily_progress = min(100, (daily_data['seconds'] / 3600) * 100)
+    
+    # All-time: 5 hours per song = 100%
+    target_seconds = song_count * 5 * 3600  # 5 hours per song in seconds
+    alltime_progress = min(100, (alltime_data['seconds'] / target_seconds * 100) if target_seconds > 0 else 0)
+    
+    return jsonify({
+        'daily': {
+            'formatted': daily_data['formatted'],
+            'seconds': daily_data['seconds'],
+            'progress': round(daily_progress, 1)
+        },
+        'alltime': {
+            'formatted': alltime_data['formatted'],
+            'seconds': alltime_data['seconds'],
+            'progress': round(alltime_progress, 1),
+            'start_date': formatted_date
+        },
+        'song_count': song_count
+    })
 
 
 @repertoires_bp.route('/api/repertoires', methods=['POST'])
