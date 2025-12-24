@@ -1532,7 +1532,6 @@ function openRepertoireModal(repertoire = null) {
     const modal = document.getElementById('repertoireModal');
     const form = document.getElementById('repertoireForm');
     const title = document.getElementById('repertoireModalTitle');
-    const deleteBtn = document.getElementById('deleteRepertoireBtn');
     const syncBtn = document.getElementById('syncRepertoireBtn');
     const undoSyncBtn = document.getElementById('undoSyncBtn');
     const copyInfoDiv = document.getElementById('repertoireCopyInfo');
@@ -1565,11 +1564,6 @@ function openRepertoireModal(repertoire = null) {
             }
         });
         
-        // Show delete button for existing repertoires
-        if (deleteBtn) {
-            deleteBtn.style.display = 'inline-block';
-            deleteBtn.onclick = deleteRepertoire;
-        }
         
         // Show sync button for existing repertoires
         if (syncBtn) {
@@ -1767,39 +1761,6 @@ async function handleRepertoireSubmit(e) {
     } catch (error) {
         console.error('Error saving repertoire:', error);
         alert('Error saving repertoire');
-    }
-}
-
-async function deleteRepertoire() {
-    const repertoireId = document.getElementById('repertoireId').value;
-    if (!repertoireId) return;
-    
-    const repertoire = repertoires.find(r => r.id === parseInt(repertoireId));
-    if (!repertoire) return;
-    
-    const confirmMsg = `Delete repertoire "${repertoire.name}"?\n\nThis will also delete all ${repertoire.song_count} song(s) in this repertoire.\n\nThis cannot be undone.`;
-    
-    if (!confirm(confirmMsg)) return;
-    
-    try {
-        const response = await fetch(`/api/repertoires/${repertoireId}`, {
-            method: 'DELETE'
-        });
-        
-        if (response.ok) {
-            closeRepertoireModal();
-            // If we deleted the current repertoire, switch to first available
-            if (currentRepertoireId === parseInt(repertoireId)) {
-                currentRepertoireId = null;
-            }
-            loadRepertoires();
-        } else {
-            const error = await response.json();
-            alert(error.error || 'Error deleting repertoire');
-        }
-    } catch (error) {
-        console.error('Error deleting repertoire:', error);
-        alert('Error deleting repertoire');
     }
 }
 
