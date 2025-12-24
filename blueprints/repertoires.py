@@ -905,6 +905,7 @@ def generate_setlist_pdf(repertoire_id):
     data = request.json or {}
     min_song_number = data.get('min_song_number', None)
     max_song_number = data.get('max_song_number', None)
+    custom_title = data.get('custom_title', None)
     
     with get_db() as conn:
         cursor = conn.cursor()
@@ -955,7 +956,9 @@ def generate_setlist_pdf(repertoire_id):
         )
         
         # Add title
-        elements.append(Paragraph(repertoire['name'], title_style))
+        # Add title (use custom title if provided, otherwise repertoire name)
+        title_text = custom_title if custom_title else repertoire['name']
+        elements.append(Paragraph(title_text, title_style))
         elements.append(Spacer(1, 0.5*cm))
         
         # Create setlist table data
