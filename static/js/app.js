@@ -705,8 +705,8 @@ function renderSongs() {
             const bDiff = b.difficulty || 'normal';
             comparison = difficultyOrder[aDiff] - difficultyOrder[bDiff];
         } else if (sortType === 'last_practiced') {
-            if (!a.last_practiced) return reverse ? -1 : 1;
-            if (!b.last_practiced) return reverse ? 1 : -1;
+            if (!a.last_practiced) return reverse ? 1 : -1;
+            if (!b.last_practiced) return reverse ? -1 : 1;
             comparison = new Date(a.last_practiced) - new Date(b.last_practiced);
         } else if (sortType === 'release_date') {
             if (!a.release_date) return reverse ? -1 : 1;
