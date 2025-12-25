@@ -371,7 +371,8 @@ def practice_song(song_id):
 
         # New practice logic: ensure practice_target is at least (practice_count + not_mastered_skills)
         # If practice_target <= (practice_count + not_mastered_skills), bump it by 1
-        if updated:
+        # BUT: If all skills are mastered (not_mastered_count == 0), don't auto-bump the target
+        if updated and not_mastered_count > 0:
             new_practice_count = updated['practice_count']
             current_target = updated['practice_target'] or 0
             
