@@ -16,6 +16,7 @@ from database import (
     ensure_release_date_column,
     ensure_repertoire_sort_order_column,
     ensure_repertoire_folder_columns,
+    ensure_performance_hints_column,
     ensure_sync_history_table,
     ensure_practice_targets_not_below_count,
     ensure_repertoire_notes_column,
@@ -28,6 +29,7 @@ from database import (
     ensure_repertoire_user_column,
     ensure_song_user_column,
     ensure_archive_repertoires,
+    ensure_settings_table,
 )
 
 # Import blueprints
@@ -36,6 +38,7 @@ from blueprints.main import main
 from blueprints.songs import songs_bp
 from blueprints.skills import skills
 from blueprints.repertoires import repertoires_bp
+from blueprints.settings import settings_bp
 
 
 def create_app():
@@ -66,6 +69,7 @@ def create_app():
     app.register_blueprint(songs_bp, url_prefix='')
     app.register_blueprint(skills, url_prefix='')
     app.register_blueprint(repertoires_bp, url_prefix='')
+    app.register_blueprint(settings_bp, url_prefix='')
     
     # ==================== REQUEST HANDLERS ====================
     
@@ -144,6 +148,11 @@ def _ensure_database_schema(app):
             pass
         
         try:
+            ensure_performance_hints_column()
+        except Exception:
+            pass
+
+        try:
             ensure_sync_history_table()
         except Exception:
             pass
@@ -180,6 +189,11 @@ def _ensure_database_schema(app):
         
         try:
             ensure_archive_repertoires()
+        except Exception:
+            pass
+
+        try:
+            ensure_settings_table()
         except Exception:
             pass
 

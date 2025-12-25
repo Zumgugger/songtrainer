@@ -41,12 +41,27 @@
                 </form>
                 <div id="skillsList" class="skills-list" style="margin-top:12px;"></div>
             </div>
+
+            <div class="admin-section">
+                <h2>Practice Auto-Bump Thresholds</h2>
+                <p class="helper-text">When a song's practice bar is full, its target will increase after the set number of days since last practiced, depending on difficulty.</p>
+                <form id="thresholdsForm" class="inline-form" style="gap:8px; flex-wrap: wrap; align-items: center;">
+                    <label style="min-width:120px;">Easy (days)</label>
+                    <input type="number" id="thresholdEasy" min="0" max="10000" value="90" style="width:120px;">
+                    <label style="min-width:120px;">Normal (days)</label>
+                    <input type="number" id="thresholdNormal" min="0" max="10000" value="60" style="width:120px;">
+                    <label style="min-width:120px;">Hard (days)</label>
+                    <input type="number" id="thresholdHard" min="0" max="10000" value="30" style="width:120px;">
+                    <button type="submit" class="btn btn-primary">Save Thresholds</button>
+                </form>
+            </div>
         </div>
     </div>
 
     <script>
         let skills = [];
         let users = [];
+        let thresholds = { easy: 90, normal: 60, hard: 30 };
 
         async function loadSkills() {
             try {
@@ -75,6 +90,27 @@
                 renderUsers();
             } catch (err) {
                 console.error('Error loading users', err);
+            }
+        }
+
+        async function loadThresholds() {
+            try {
+                const res = await fetch('/api/settings/difficulty-thresholds');
+                if (res.status === 401) {
+                    window.location = '/login?next=/admin';
+                    return;
+                }
+                if (res.status === 403) {
+                    alert('Admin access required');
+                    return;
+                }
+                const data = await res.json();
+                thresholds = data;
+                document.getElementById('thresholdEasy').value = thresholds.easy;
+                document.getElementById('thresholdNormal').value = thresholds.normal;
+                document.getElementById('thresholdHard').value = thresholds.hard;
+            } catch (err) {
+                console.error('Error loading thresholds', err);
             }
         }
 
@@ -174,6 +210,31 @@
                 loadUsers();
             } catch (err) {
                 alert('Error creating user');
+            }
+        });
+
+        // Save thresholds
+        document.getElementById('thresholdsForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const easy = parseInt(document.getElementById('thresholdEasy').value, 10);
+            const normal = parseInt(document.getElementById('thresholdNormal').value, 10);
+            const hard = parseInt(document.getElementById('thresholdHard').value, 10);
+            try {
+                const res = await fetch('/api/settings/difficulty-thresholds', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ easy, normal, hard })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    alert(err.error || 'Failed to save thresholds');
+                    return;
+                }
+                const data = await res.json();
+                thresholds = { easy: data.easy, normal: data.normal, hard: data.hard };
+                alert('Thresholds saved');
+            } catch (err) {
+                alert('Error saving thresholds');
             }
         });
 
@@ -278,6 +339,7 @@
         // Initialize
         loadSkills();
         loadUsers();
+        loadThresholds();
     </script>
 </body>
 </html>

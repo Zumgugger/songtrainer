@@ -516,6 +516,28 @@ def ensure_archive_repertoires():
         conn.commit()
 
 
+def ensure_settings_table():
+    """Ensure settings table exists and default difficulty thresholds are populated."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        ''')
+
+        # Seed default thresholds if missing
+        defaults = [
+            ('threshold_easy_days', '90'),
+            ('threshold_normal_days', '60'),
+            ('threshold_hard_days', '30'),
+        ]
+        for k, v in defaults:
+            cursor.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', (k, v))
+        conn.commit()
+
+
 if __name__ == '__main__':
     init_db()
     ensure_users_table()

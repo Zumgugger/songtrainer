@@ -63,15 +63,26 @@ def get_songs():
     scope_user_id = resolve_scope_user_id(get_db, requested_user_id)
 
     # Auto-bump targets for full bars that have aged past difficulty-based thresholds
-    difficulty_threshold_days = {
-        'easy': 90,
-        'normal': 60,
-        'hard': 30,
-    }
     now = datetime.now()
 
     with get_db() as conn:
         cursor = conn.cursor()
+
+        # Load difficulty thresholds from settings table (admin configurable)
+        try:
+            rows = cursor.execute(
+                'SELECT key, value FROM settings WHERE key IN (?, ?, ?)',
+                ('threshold_easy_days', 'threshold_normal_days', 'threshold_hard_days')
+            ).fetchall()
+            settings_map = {row['key']: int(row['value']) for row in rows}
+        except Exception:
+            settings_map = {}
+
+        difficulty_threshold_days = {
+            'easy': settings_map.get('threshold_easy_days', 90),
+            'normal': settings_map.get('threshold_normal_days', 60),
+            'hard': settings_map.get('threshold_hard_days', 30),
+        }
 
         if repertoire_id:
             require_repertoire(cursor, repertoire_id, scope_user_id)
