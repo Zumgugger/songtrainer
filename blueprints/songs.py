@@ -380,14 +380,20 @@ def practice_song(song_id):
             WHERE song_id = ? AND is_mastered = 0
         ''', (song_id,)).fetchone()['count']
 
-        # New practice logic: ensure practice_target is at least (practice_count + not_mastered_skills)
-        # If practice_target <= (practice_count + not_mastered_skills), bump it by 1
-        # BUT: If all skills are mastered (not_mastered_count == 0), don't auto-bump the target
-        if updated and not_mastered_count > 0:
+        # Ensure practice_target never falls behind practice_count
+        # This prevents practice progress from exceeding 100%
+        if updated:
             new_practice_count = updated['practice_count']
             current_target = updated['practice_target'] or 0
             
-            if current_target <= (new_practice_count + not_mastered_count):
+            # If count exceeds target, bump target to match count
+            if new_practice_count > current_target:
+                cursor.execute(
+                    'UPDATE songs SET practice_target = ? WHERE id = ?',
+                    (new_practice_count, song_id)
+                )
+            # If there are unmastered skills, ensure target is at least (count + unmastered)
+            elif not_mastered_count > 0 and current_target <= (new_practice_count + not_mastered_count):
                 new_target = current_target + 1
                 cursor.execute(
                     'UPDATE songs SET practice_target = ? WHERE id = ?',
