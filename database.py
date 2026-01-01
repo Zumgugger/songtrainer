@@ -4,7 +4,9 @@ from datetime import datetime
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash
 
-DATABASE = 'songs.db'
+# Use data directory for persistent storage in Docker
+DATA_DIR = os.getenv('DATA_DIR', '.')
+DATABASE = os.path.join(DATA_DIR, 'songs.db')
 
 # Defaults for bootstrapping the first admin user when none exist yet.
 DEFAULT_ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'admin@example.com')

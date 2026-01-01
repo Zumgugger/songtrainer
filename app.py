@@ -48,10 +48,10 @@ def create_app():
     app = Flask(__name__)
     
     # ==================== CONFIGURATION ====================
-    app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-secret-change-me')
+    app.secret_key = os.getenv('SECRET_KEY', os.getenv('FLASK_SECRET_KEY', 'dev-secret-change-me'))
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-    app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_COOKIE_SECURE', 'false').lower() == 'true'
+    app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_ENV', 'development') == 'production'
     app.permanent_session_lifetime = timedelta(hours=12)
     
     # ==================== INITIALIZATION ====================
