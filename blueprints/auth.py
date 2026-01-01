@@ -320,7 +320,7 @@ def list_users():
         users = cursor.execute(
             'SELECT id, email, role FROM users ORDER BY email'
         ).fetchall()
-        return jsonify([dict(id=u['id'], email=u['email'], role=u['role']) for u in users])
+        return jsonify({'users': [dict(id=u['id'], email=u['email'], role=u['role']) for u in users]})
 
 
 @auth.route('/api/users', methods=['POST'])
