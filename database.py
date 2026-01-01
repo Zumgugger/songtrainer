@@ -312,6 +312,16 @@ def ensure_audio_path_column():
             cursor.execute('ALTER TABLE songs ADD COLUMN audio_path TEXT')
             print('Added audio_path column to songs table')
 
+def ensure_drive_file_id_column():
+    """Ensure songs.drive_file_id column exists for Google Drive audio links."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cols = cursor.execute('PRAGMA table_info(songs)').fetchall()
+        colnames = {c['name'] for c in cols}
+        if 'drive_file_id' not in colnames:
+            cursor.execute('ALTER TABLE songs ADD COLUMN drive_file_id TEXT')
+            print('Added drive_file_id column to songs table')
+
 def ensure_chart_path_column():
     """Ensure songs.chart_path column exists for linking chart files."""
     with get_db() as conn:

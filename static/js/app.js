@@ -803,13 +803,24 @@ function createSongCard(song) {
         </div>
     ` : '';
     
-    const audioHTML = song.audio_path ? `
-        <div class="song-audio">
-            <a class="audio-link" href="/media/${song.id}" title="Open linked audio">
-                🎧 Open audio
-            </a>
-        </div>
-    ` : '';
+    let audioHTML = '';
+    if (song.audio_path) {
+        audioHTML = `
+            <div class="song-audio">
+                <a class="audio-link" href="/media/${song.id}" title="Open linked audio">
+                    🎧 Open audio
+                </a>
+            </div>
+        `;
+    } else if (song.drive_file_id) {
+        audioHTML = `
+            <div class="song-audio">
+                <a class="audio-link" href="https://drive.google.com/file/d/${song.drive_file_id}/view" target="_blank" title="Open audio from Google Drive">
+                    🎧 Open audio (Drive)
+                </a>
+            </div>
+        `;
+    }
 
     const chartHTML = song.chart_path ? `
         <div class="song-audio">
@@ -1214,6 +1225,7 @@ function openModal(song = null) {
         document.getElementById('releaseDate').value = song.release_date || '';
         document.getElementById('notes').value = song.notes || '';
         document.getElementById('performanceHints').value = song.performance_hints || '';
+        document.getElementById('driveFileId').value = song.drive_file_id || '';
         
         // Check the skills that are assigned to this song
         const assignedSkillIds = song.skills
@@ -1293,6 +1305,7 @@ async function handleSongSubmit(e) {
         release_date: document.getElementById('releaseDate').value || null,
         notes: document.getElementById('notes').value,
         performance_hints: document.getElementById('performanceHints').value,
+        drive_file_id: document.getElementById('driveFileId').value || null,
         skill_ids: selectedSkillIds
     };
     

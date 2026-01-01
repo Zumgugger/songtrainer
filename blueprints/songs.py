@@ -162,8 +162,8 @@ def create_song():
             initial_target = data.get('practice_target', 0) or 1
 
         cursor.execute('''
-            INSERT INTO songs (title, artist, song_number, repertoire_id, user_id, priority, practice_target, date_added, release_date, notes, performance_hints)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO songs (title, artist, song_number, repertoire_id, user_id, priority, practice_target, date_added, release_date, notes, performance_hints, drive_file_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             data['title'],
             data['artist'],
@@ -175,7 +175,8 @@ def create_song():
             datetime.now().isoformat(),
             data.get('release_date'),
             data.get('notes', ''),
-            data.get('performance_hints', '')
+            data.get('performance_hints', ''),
+            data.get('drive_file_id')
         ))
 
         song_id = cursor.lastrowid
@@ -293,7 +294,7 @@ def update_song(song_id):
         cursor.execute('''
             UPDATE songs
             SET title = ?, artist = ?, song_number = ?, priority = ?, 
-                practice_target = ?, release_date = ?, notes = ?, performance_hints = ?
+                practice_target = ?, release_date = ?, notes = ?, performance_hints = ?, drive_file_id = ?
             WHERE id = ?
         ''', (
             data.get('title'),
@@ -304,6 +305,7 @@ def update_song(song_id):
             data.get('release_date'),
             data.get('notes', ''),
             data.get('performance_hints', ''),
+            data.get('drive_file_id'),
             song_id
         ))
 

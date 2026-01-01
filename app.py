@@ -11,6 +11,7 @@ from database import (
     init_db,
     ensure_indexes_and_normalize,
     ensure_audio_path_column,
+    ensure_drive_file_id_column,
     ensure_chart_path_column,
     ensure_repertoire_id_column,
     ensure_release_date_column,
@@ -119,6 +120,11 @@ def _ensure_database_schema(app):
         
         try:
             ensure_audio_path_column()
+        except Exception:
+            pass
+        
+        try:
+            ensure_drive_file_id_column()
         except Exception:
             pass
         
