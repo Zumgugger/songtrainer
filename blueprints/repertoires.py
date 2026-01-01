@@ -898,6 +898,59 @@ def lookup_song_metadata():
         return jsonify({'error': str(e), 'found': False}), 500
 
 
+@repertoires_bp.route('/api/repertoires/<int:repertoire_id>/add-skills-to-songs', methods=['POST'])
+@login_required
+def add_skills_to_all_songs(repertoire_id):
+    """Add selected skills to all songs in a repertoire"""
+    data = request.json or {}
+    skill_ids = data.get('skill_ids', [])
+    
+    if not skill_ids:
+        return jsonify({'error': 'No skills selected'}), 400
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        rep = require_repertoire(cursor, repertoire_id, g.current_user['id'])
+        
+        # Get all songs in this repertoire
+        songs = cursor.execute(
+            'SELECT id FROM songs WHERE repertoire_id = ?',
+            (repertoire_id,)
+        ).fetchall()
+        
+        songs_updated = 0
+        skills_added = 0
+        
+        for song in songs:
+            song_id = song['id']
+            for skill_id in skill_ids:
+                # Check if skill already exists for this song
+                existing = cursor.execute(
+                    'SELECT 1 FROM song_skills WHERE song_id = ? AND skill_id = ?',
+                    (song_id, skill_id)
+                ).fetchone()
+                
+                if not existing:
+                    cursor.execute(
+                        'INSERT INTO song_skills (song_id, skill_id, is_mastered) VALUES (?, ?, 0)',
+                        (song_id, skill_id)
+                    )
+                    skills_added += 1
+                    
+                    # Increment practice_target for this song
+                    cursor.execute(
+                        'UPDATE songs SET practice_target = practice_target + 1 WHERE id = ?',
+                        (song_id,)
+                    )
+            songs_updated += 1
+        
+        return jsonify({
+            'message': 'Skills added successfully',
+            'songs_updated': songs_updated,
+            'skills_added': skills_added
+        })
+
+
 @repertoires_bp.route('/api/repertoires/<int:repertoire_id>/setlist-pdf', methods=['POST'])
 @login_required
 def generate_setlist_pdf(repertoire_id):
@@ -906,6 +959,12 @@ def generate_setlist_pdf(repertoire_id):
     min_song_number = data.get('min_song_number', None)
     max_song_number = data.get('max_song_number', None)
     custom_title = data.get('custom_title', None)
+    
+    # Convert to integers if provided
+    if min_song_number is not None:
+        min_song_number = int(min_song_number)
+    if max_song_number is not None:
+        max_song_number = int(max_song_number)
     
     with get_db() as conn:
         cursor = conn.cursor()
@@ -919,17 +978,17 @@ def generate_setlist_pdf(repertoire_id):
         if not repertoire or (g.current_user['role'] != 'admin' and repertoire['user_id'] != g.current_user['id']):
             return jsonify({'error': 'Repertoire not found'}), 404
         
-        # Build query with optional range filters
+        # Get songs within the range
         query = 'SELECT song_number, title, performance_hints FROM songs WHERE repertoire_id = ?'
         params = [repertoire_id]
         
-        if min_song_number:
+        if min_song_number is not None:
             query += ' AND song_number >= ?'
-            params.append(int(min_song_number))
+            params.append(min_song_number)
         
-        if max_song_number:
+        if max_song_number is not None:
             query += ' AND song_number <= ?'
-            params.append(int(max_song_number))
+            params.append(max_song_number)
         
         query += ' ORDER BY song_number ASC'
         songs = cursor.execute(query, params).fetchall()
@@ -949,22 +1008,30 @@ def generate_setlist_pdf(repertoire_id):
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
-            fontSize=24,
+            fontSize=28,
             textColor=colors.HexColor('#2c3e50'),
             spaceAfter=30,
-            alignment=TA_CENTER
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
         )
         
-        # Song/hints style - 14pt black text
+        # Song title style - black text
         song_style = ParagraphStyle(
-            'SongStyle',
+            'SongTitle',
             parent=styles['Normal'],
-            fontSize=14,
+            fontSize=20,
             textColor=colors.black,
             fontName='Helvetica'
         )
         
-        # Add title
+        # Performance hints style - black text
+        hints_style = ParagraphStyle(
+            'PerformanceHints',
+            parent=styles['Normal'],
+            fontSize=14,
+            textColor=colors.black
+        )
+        
         # Add title (use custom title if provided, otherwise repertoire name)
         title_text = custom_title if custom_title else repertoire['name']
         elements.append(Paragraph(title_text, title_style))
@@ -973,34 +1040,34 @@ def generate_setlist_pdf(repertoire_id):
         # Create setlist table data
         table_data = []
         for song in songs:
-            # Format: ♠ Song Title ♠ performance notes
-            song_text = f"<b>♠ {song['title']} ♠</b>"
-            
+            # Song title cell: ♠ Song Title ♠
+            song_title = f"♠ {song['title']} ♠"
+            song_title_paragraph = Paragraph(song_title, song_style)
+
+            # Performance hints cell (if any)
+            hints_paragraph = ""
             if song['performance_hints']:
-                # Convert **text** to <b>text</b> for PDF
                 hints = song['performance_hints']
-                hints = re.sub(r'\*\*([^*]+)\*\*', r'<b>\1</b>', hints)
-                # Add hints without brackets
-                song_text += f" {hints}"
-            
+                hints = re.sub(r'\*\*([^*]+)\*\*', r'\1', hints)
+                hints_paragraph = Paragraph(hints, hints_style)
+
             table_data.append([
                 str(song['song_number']),
-                Paragraph(song_text, song_style)
+                song_title_paragraph,
+                hints_paragraph
             ])
         
-        # Create table
-        table = Table(table_data, colWidths=[2*cm, 16*cm])
+        # Create table with three columns: number, title, hints
+        table = Table(table_data, colWidths=[2*cm, 10*cm, 6*cm])
         table.setStyle(TableStyle([
             ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
-            ('TOPPADDING', (0, 0), (-1, -1), 12),
+            ('ALIGN', (1, 0), (2, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 20),
+            ('TOPPADDING', (0, 0), (-1, -1), 20),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
             ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')])
         ]))
-        
         elements.append(table)
         
         # Build PDF
@@ -1008,7 +1075,8 @@ def generate_setlist_pdf(repertoire_id):
         
         # Prepare response
         buffer.seek(0)
-        filename = f"{repertoire['name']}_setlist.pdf"
+        today = datetime.now().strftime('%Y%m%d')
+        filename = f"{title_text.replace(' ', '_')}_setlist_{today}.pdf"
         
         return send_file(
             buffer,

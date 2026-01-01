@@ -1345,10 +1345,58 @@ function populateRepertoireSkillsCheckboxes() {
     
     container.innerHTML = skills.map(skill => `
         <label>
-            <input type="checkbox" id="rep-skill-${skill.id}" value="${skill.id}">
+            <input type="checkbox" id="rep-skill-${skill.id}" value="${skill.id}" onchange="updateAddSkillsButton()">
             ${skill.name}
         </label>
     `).join('');
+    updateAddSkillsButton();
+}
+
+function updateAddSkillsButton() {
+    const btn = document.getElementById('addSkillsToAllSongsBtn');
+    const repertoireId = document.getElementById('repertoireId').value;
+    const checkboxes = document.querySelectorAll('#repertoireSkillsCheckboxes input[type="checkbox"]:checked');
+    btn.disabled = !repertoireId || checkboxes.length === 0;
+}
+
+async function addSkillsToAllSongs() {
+    const repertoireId = document.getElementById('repertoireId').value;
+    if (!repertoireId) {
+        alert('Please save the repertoire first');
+        return;
+    }
+    
+    const checkboxes = document.querySelectorAll('#repertoireSkillsCheckboxes input[type="checkbox"]:checked');
+    const skillIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    
+    if (skillIds.length === 0) {
+        alert('Please select at least one skill');
+        return;
+    }
+    
+    const skillNames = skillIds.map(id => skills.find(s => s.id === id)?.name || id).join(', ');
+    if (!confirm(`Add skills (${skillNames}) to ALL songs in this repertoire?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/repertoires/${repertoireId}/add-skills-to-songs`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_ids: skillIds })
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            alert(`Successfully added skills to ${result.songs_updated} songs (${result.skills_added} skill assignments added)`);
+            loadSongs();
+        } else {
+            alert(`Error: ${result.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error adding skills to songs:', error);
+        alert('Error adding skills to songs');
+    }
 }
 
 // ==================== DRAGGABLE MODAL ====================
@@ -1534,6 +1582,7 @@ function openRepertoireModal(repertoire = null) {
     const title = document.getElementById('repertoireModalTitle');
     const syncBtn = document.getElementById('syncRepertoireBtn');
     const undoSyncBtn = document.getElementById('undoSyncBtn');
+    const deleteBtn = document.getElementById('deleteRepertoireBtn');
     const copyInfoDiv = document.getElementById('repertoireCopyInfo');
     const copyInfoText = document.getElementById('copyInfoText');
     const shareSection = document.getElementById('shareRepertoireSection');
