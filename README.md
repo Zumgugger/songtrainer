@@ -181,6 +181,67 @@ python link_charts.py "/path/to/your/song charts"
 
 The scripts intelligently match files to songs by title/artist. For charts, files containing "chord" or "chart" in the name are preferred when multiple matches exist.
 
+### Google Drive Audio Integration
+
+For production deployment without uploading large audio files, you can serve audio from Google Drive:
+
+#### Step 1: Get File IDs from Google Drive
+
+1. Go to [script.google.com](https://script.google.com)
+2. Create a new project and paste this script:
+
+```javascript
+function listFilesInFolder() {
+  var folderId = 'YOUR_FOLDER_ID_HERE';  // Get from Drive folder URL
+  var folder = DriveApp.getFolderById(folderId);
+  
+  var output = [];
+  var files = folder.getFiles();
+  while (files.hasNext()) {
+    var file = files.next();
+    if (file.getName().toLowerCase().endsWith('.mp3')) {
+      output.push([file.getName(), file.getId()]);
+    }
+  }
+  
+  Logger.log('Found ' + output.length + ' MP3 files');
+  
+  if (output.length > 0) {
+    var ss = SpreadsheetApp.create('Drive File IDs');
+    var sheet = ss.getActiveSheet();
+    sheet.getRange(1, 1, output.length, 2).setValues(output);
+    Logger.log('Created spreadsheet: ' + ss.getUrl());
+  }
+}
+```
+
+3. Replace `YOUR_FOLDER_ID_HERE` with your folder ID (from URL: `drive.google.com/drive/folders/FOLDER_ID`)
+4. Run the function (select `listFilesInFolder` from dropdown, click ▶️)
+5. Grant permissions when prompted
+6. Find "Drive File IDs" spreadsheet in your Drive with filename/ID pairs
+
+#### Step 2: Make Files Shareable
+
+1. In Google Drive, select all audio files
+2. Right-click → Share → Change to "Anyone with the link can view"
+
+#### Step 3: Import IDs into Songtrainer
+
+1. Open a repertoire in Songtrainer
+2. Click "Import Drive IDs"
+3. Copy/paste the data from the spreadsheet (tab-separated: `filename.mp3    file_id`)
+4. Click Import
+
+#### Step 4: Clear Local Audio Paths
+
+After importing Drive IDs, clear local audio paths so Drive links are used:
+
+```bash
+docker exec -it songtrainer python -c "import sqlite3; conn = sqlite3.connect('/app/data/songs.db'); conn.execute(\"UPDATE songs SET audio_path = NULL WHERE drive_file_id IS NOT NULL AND drive_file_id != ''\"); conn.commit(); print('Updated', conn.total_changes, 'rows')"
+```
+
+Run this command after each batch import to activate Drive playback for those songs.
+
 ## Song Properties
 
 - **Title & Artist**: Basic song info
