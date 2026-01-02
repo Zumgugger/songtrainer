@@ -1094,6 +1094,11 @@ header h1 {
         display: inline;
     }
     
+    /* Hide settings button on mobile */
+    #settingsBtn {
+        display: none;
+    }
+    
     #addSongBtn, #adminLink {
         padding: 8px 12px;
         font-size: 1.1rem;

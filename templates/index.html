@@ -181,6 +181,59 @@
             flex-wrap: wrap;
             gap: 5px;
         }
+        
+        /* Settings toggle style */
+        .setting-toggle {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            cursor: pointer;
+            padding: 10px;
+            border-radius: var(--radius-sm);
+            transition: background 0.2s;
+        }
+        
+        .setting-toggle:hover {
+            background: var(--bg-hover);
+        }
+        
+        .setting-toggle input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-top: 2px;
+            cursor: pointer;
+        }
+        
+        .setting-label {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .setting-label small {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+        
+        .settings-section {
+            margin-bottom: 15px;
+        }
+        
+        .settings-section h4 {
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Hide download preference on mobile (only useful on desktop) */
+        @media (max-width: 768px) {
+            .setting-toggle.desktop-only {
+                display: none;
+            }
+        }
     </style>
     </head>
 <body>
@@ -189,7 +242,8 @@
             <h1>🎵 Song Trainer</h1>
             <div class="header-actions">
                 <button id="addSongBtn" class="btn btn-primary"><span class="btn-text">+ Add Song</span><span class="btn-icon-only">+</span></button>
-                <a href="/admin" id="adminLink" class="btn btn-secondary" style="display:none;"><span class="btn-text">⚙️ Admin</span><span class="btn-icon-only">⚙️</span></a>
+                <button id="settingsBtn" class="btn btn-secondary" onclick="openSettingsModal()" title="Settings"><span class="btn-text">⚙️ Settings</span><span class="btn-icon-only">⚙️</span></button>
+                <a href="/admin" id="adminLink" class="btn btn-secondary" style="display:none;"><span class="btn-text">👑 Admin</span><span class="btn-icon-only">👑</span></a>
                 <div class="user-section">
                     <div id="userAvatar" class="user-avatar" title=""></div>
                     <button id="logoutBtn" class="btn btn-link" style="padding:6px 10px;">Logout</button>
@@ -450,6 +504,26 @@
                     </div>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 400px;">
+            <h2>⚙️ Settings</h2>
+            <div class="settings-section">
+                <h4>Audio Playback</h4>
+                <label class="setting-toggle desktop-only">
+                    <input type="checkbox" id="downloadAudioPref" onchange="saveDownloadPreference()">
+                    <span class="setting-label">
+                        <strong>Download audio files</strong>
+                        <small>When enabled, clicking audio links will download the MP3 instead of opening in browser. Useful if you have a custom audio player.</small>
+                    </span>
+                </label>
+            </div>
+            <div class="form-actions" style="margin-top: 20px;">
+                <button type="button" class="btn btn-primary" onclick="closeSettingsModal()">Close</button>
+            </div>
         </div>
     </div>
 

@@ -16,6 +16,29 @@ let currentAttachChartId = null;
 let focusMode = 0; // 0 = normal, 1 = performance, 2 = hidden
 let currentUser = null;
 
+// User preferences (stored in localStorage)
+function getDownloadAudioPref() {
+    return localStorage.getItem('downloadAudioPref') === 'true';
+}
+
+function saveDownloadPreference() {
+    const checkbox = document.getElementById('downloadAudioPref');
+    localStorage.setItem('downloadAudioPref', checkbox.checked);
+    // Re-render songs to update audio links
+    renderSongs();
+}
+
+function openSettingsModal() {
+    const modal = document.getElementById('settingsModal');
+    const checkbox = document.getElementById('downloadAudioPref');
+    checkbox.checked = getDownloadAudioPref();
+    modal.style.display = 'block';
+}
+
+function closeSettingsModal() {
+    document.getElementById('settingsModal').style.display = 'none';
+}
+
 // Reorder lock: prevent re-sorting/filtering after quick actions (e.g., toggling a skill)
 let reorderLocked = false;
 let lastRenderedSongIds = [];
@@ -151,6 +174,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (event.target == repertoireModal) {
             closeRepertoireModal();
+        }
+        const settingsModal = document.getElementById('settingsModal');
+        if (event.target == settingsModal) {
+            closeSettingsModal();
         }
     };
 
@@ -999,7 +1026,16 @@ function createSongCard(song) {
         if (song.audio_path) {
             audioLink = `<div class="song-audio"><a class="audio-link" href="/media/${song.id}" title="Open linked audio"><span class="media-full">🎧 Open audio</span><span class="media-short">🎧 audio</span></a></div>`;
         } else if (song.drive_file_id) {
-            audioLink = `<div class="song-audio"><a class="audio-link" href="https://drive.google.com/file/d/${song.drive_file_id}/view" target="_blank" title="Open audio from Google Drive"><span class="media-full">🎧 Open audio (Drive)</span><span class="media-short">🎧 audio</span></a></div>`;
+            // Use download link if preference is enabled, otherwise view link
+            const downloadPref = getDownloadAudioPref();
+            const driveUrl = downloadPref 
+                ? `https://drive.google.com/uc?export=download&id=${song.drive_file_id}`
+                : `https://drive.google.com/file/d/${song.drive_file_id}/view`;
+            const linkTarget = downloadPref ? '' : 'target="_blank"';
+            const linkTitle = downloadPref ? 'Download audio' : 'Open audio from Google Drive';
+            const linkText = downloadPref ? '🎧 Download audio' : '🎧 Open audio (Drive)';
+            const linkTextShort = downloadPref ? '🎧 download' : '🎧 audio';
+            audioLink = `<div class="song-audio"><a class="audio-link" href="${driveUrl}" ${linkTarget} title="${linkTitle}"><span class="media-full">${linkText}</span><span class="media-short">${linkTextShort}</span></a></div>`;
         }
         let chartLink = song.chart_path ? `<div class="song-audio"><a class="audio-link" href="/chart/${song.id}" target="_blank" title="Open linked chart"><span class="media-full">📄 Open chart</span><span class="media-short">📄 chart</span></a></div>` : '';
         mediaRowHTML = `<div class="song-media-row">${audioLink}${chartLink}</div>`;
