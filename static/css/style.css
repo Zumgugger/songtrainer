@@ -326,6 +326,7 @@ header h1 {
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+    position: relative;
 }
 
 .sort-controls label {
@@ -352,6 +353,31 @@ header h1 {
     background: var(--primary);
     color: white;
     border-color: var(--primary);
+}
+
+/* Inline search controls */
+.search-controls-inline {
+    flex: 1;
+    min-width: 120px;
+    max-width: 200px;
+}
+
+.search-controls-inline input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 2px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+}
+
+.search-controls-inline input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+/* Save button pushed to far right */
+.save-btn-right {
+    margin-left: auto !important;
 }
 
 .search-controls {
@@ -664,6 +690,16 @@ header h1 {
     margin-top: 10px;
 }
 
+.song-media-row {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.song-media-row .song-audio {
+    margin-top: 5px;
+}
+
 .audio-link {
     text-decoration: none;
     font-weight: 600;
@@ -937,19 +973,244 @@ header h1 {
 
 /* ==================== RESPONSIVE ==================== */
 
+/* User avatar */
+.user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1rem;
+    cursor: default;
+}
+
+.user-section {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.app-credits-inline {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.app-credits-inline a {
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.app-credits-inline a:hover {
+    color: var(--primary);
+}
+
+/* Hide icon-only version on desktop */
+.btn-icon-only {
+    display: none;
+}
+
+/* Repertoire burger menu */
+.repertoire-burger {
+    display: none;
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: var(--radius-sm);
+    font-size: 1rem;
+    cursor: pointer;
+    align-items: center;
+    gap: 8px;
+}
+
+.repertoire-burger:hover {
+    background: var(--primary-dark);
+}
+
+/* Sort menu toggle */
+.sort-menu-toggle {
+    display: none;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.sort-buttons-wrapper {
+    display: contents;
+}
+
+/* Tap to expand on mobile */
+.song-card.collapsed .song-details-collapsible {
+    display: none;
+}
+
+.song-card .expand-indicator {
+    display: none;
+}
+
 @media (max-width: 768px) {
+    body {
+        padding: 10px;
+    }
+    
     .container {
-        padding: 20px;
+        padding: 15px;
+        border-radius: var(--radius-sm);
     }
 
     header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 15px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        padding-bottom: 15px;
+        margin-bottom: 15px;
     }
 
     header h1 {
-        font-size: 2rem;
+        font-size: 1.5rem;
+        flex: 0 0 auto;
+    }
+    
+    .header-actions {
+        flex: 1;
+        justify-content: flex-end;
+        gap: 6px;
+    }
+    
+    /* Icon-only buttons on mobile */
+    .btn-text {
+        display: none;
+    }
+    
+    .btn-icon-only {
+        display: inline;
+    }
+    
+    #addSongBtn, #adminLink {
+        padding: 8px 12px;
+        font-size: 1.1rem;
+    }
+    
+    .user-section {
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
+    }
+    
+    .user-section .user-avatar {
+        width: 32px;
+        height: 32px;
+        font-size: 0.9rem;
+    }
+    
+    #logoutBtn {
+        font-size: 0.75rem;
+        padding: 4px 8px;
+    }
+    
+    .app-credits-inline {
+        font-size: 9px;
+    }
+    
+    /* Burger menu for repertoires */
+    .repertoire-burger {
+        display: flex;
+    }
+    
+    .repertoire-tabs .tabs {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        box-shadow: var(--shadow-md);
+        flex-direction: column;
+        z-index: 100;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    .repertoire-tabs .tabs.open {
+        display: flex;
+    }
+    
+    .repertoire-tabs {
+        position: relative;
+    }
+    
+    .repertoire-tabs .tabs .tab {
+        border-radius: 0;
+        border-bottom: 1px solid var(--border);
+        justify-content: flex-start;
+        padding: 12px 15px;
+    }
+    
+    .repertoire-tabs .tabs .tab:last-child {
+        border-bottom: none;
+    }
+    
+    #addRepertoireBtn {
+        font-size: 0.8rem;
+        padding: 8px 10px;
+    }
+    
+    /* Collapsible sort controls */
+    .sort-menu-toggle {
+        display: block;
+    }
+    
+    .sort-buttons-wrapper {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        box-shadow: var(--shadow-md);
+        padding: 10px;
+        z-index: 100;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .sort-buttons-wrapper.open {
+        display: flex;
+    }
+    
+    .sort-buttons-wrapper label {
+        width: 100%;
+        margin-bottom: 5px;
+    }
+    
+    .sort-controls {
+        position: relative;
+        flex-wrap: wrap;
+    }
+    
+    .controls {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .search-controls {
+        width: 100%;
+    }
+    
+    #searchInput {
+        width: 100%;
     }
 
     .song-header {
@@ -971,5 +1232,38 @@ header h1 {
         top: 10px !important;
         width: calc(100% - 20px);
         max-width: none;
+    }
+    
+    /* Tap to expand */
+    .song-card .expand-indicator {
+        display: block;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        padding: 5px;
+        cursor: pointer;
+    }
+    
+    .song-card.collapsed .expand-indicator::after {
+        content: '▼ Tap to expand';
+    }
+    
+    .song-card:not(.collapsed) .expand-indicator::after {
+        content: '▲ Tap to collapse';
+    }
+    
+    /* Reduce song card padding */
+    .song-card {
+        padding: 12px;
+    }
+    
+    .song-title {
+        font-size: 1rem;
+    }
+    
+    .song-number {
+        font-size: 0.9rem;
+        min-width: 28px;
+        height: 28px;
     }
 }

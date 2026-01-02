@@ -13,7 +13,7 @@ let sortHistory = []; // Stack of previous sorts for multi-level sorting
 let searchQuery = '';
 let currentAttachSongId = null;
 let currentAttachChartId = null;
-let focusMode = false;
+let focusMode = 0; // 0 = normal, 1 = performance, 2 = hidden
 let currentUser = null;
 
 // Reorder lock: prevent re-sorting/filtering after quick actions (e.g., toggling a skill)
@@ -27,6 +27,40 @@ function lockReordering() {
 function unlockReordering() {
     reorderLocked = false;
     lastRenderedSongIds = [];
+}
+
+// Mobile menu toggle functions
+function toggleRepertoireMenu() {
+    const tabs = document.getElementById('repertoireTabs');
+    tabs.classList.toggle('open');
+}
+
+function toggleSortMenu() {
+    const wrapper = document.getElementById('sortButtonsWrapper');
+    wrapper.classList.toggle('open');
+}
+
+// Close menus when clicking outside
+document.addEventListener('click', (e) => {
+    const tabs = document.getElementById('repertoireTabs');
+    const burger = document.getElementById('repertoireBurger');
+    const sortWrapper = document.getElementById('sortButtonsWrapper');
+    const sortToggle = document.getElementById('sortMenuToggle');
+    
+    if (tabs && burger && !tabs.contains(e.target) && !burger.contains(e.target)) {
+        tabs.classList.remove('open');
+    }
+    if (sortWrapper && sortToggle && !sortWrapper.contains(e.target) && !sortToggle.contains(e.target)) {
+        sortWrapper.classList.remove('open');
+    }
+});
+
+// Toggle song card expansion on mobile
+function toggleSongExpand(songId) {
+    const card = document.querySelector(`.song-card[data-id="${songId}"]`);
+    if (card) {
+        card.classList.toggle('collapsed');
+    }
 }
 
 // Redirect to login on 401 for any fetch
@@ -45,10 +79,15 @@ async function loadCurrentUser() {
         const res = await fetch('/api/auth/me');
         const data = await res.json();
         currentUser = data.user;
-        const emailEl = document.getElementById('userEmail');
-        if (emailEl && currentUser) {
-            emailEl.textContent = currentUser.email;
+        
+        // Set user avatar with initial
+        const avatarEl = document.getElementById('userAvatar');
+        if (avatarEl && currentUser) {
+            const initial = currentUser.email.charAt(0).toUpperCase();
+            avatarEl.textContent = initial;
+            avatarEl.title = currentUser.email;
         }
+        
         const adminLink = document.getElementById('adminLink');
         if (adminLink) {
             adminLink.style.display = currentUser && currentUser.role === 'admin' ? 'inline-block' : 'none';
@@ -359,6 +398,11 @@ async function loadRepertoires() {
         // Select first repertoire by default if none selected
         if (repertoires.length > 0 && !currentRepertoireId) {
             currentRepertoireId = repertoires[0].id;
+            // Update burger menu name
+            const nameSpan = document.getElementById('currentRepertoireName');
+            if (nameSpan) {
+                nameSpan.textContent = repertoires[0].name;
+            }
         }
 
         loadSongs();
@@ -529,16 +573,59 @@ async function toggleDifficulty(songId) {
 }
 
 function toggleFocusMode() {
-    focusMode = !focusMode;
+    // Cycle through: 0 (normal) -> 1 (performance) -> 2 (hidden) -> 0
+    focusMode = (focusMode + 1) % 3;
+    
     const songsList = document.getElementById('songsList');
     const focusBtn = document.getElementById('focusModeToggle');
+    const overallProgress = document.querySelector('.overall-progress');
+    const sortControls = document.querySelector('.sort-controls');
+    const sortButtons = sortControls.querySelectorAll('.sort-btn');
+    const sortLabel = sortControls.querySelector('label');
+    const saveOrderBtn = document.getElementById('saveOrderBtn');
+    const sortMenuToggle = document.getElementById('sortMenuToggle');
+    const sortButtonsWrapper = document.getElementById('sortButtonsWrapper');
     
-    if (focusMode) {
-        songsList.classList.add('focus-mode');
-        focusBtn.style.opacity = '0.6';
-    } else {
-        songsList.classList.remove('focus-mode');
+    // Remove all focus classes first
+    songsList.classList.remove('focus-mode', 'performance-mode');
+    document.body.classList.remove('performance-active');
+    
+    if (focusMode === 0) {
+        // Normal mode - show everything
+        focusBtn.textContent = '👁️';
         focusBtn.style.opacity = '1';
+        focusBtn.title = 'Toggle focus mode (currently: normal)';
+        if (overallProgress) overallProgress.style.display = '';
+        sortButtons.forEach(btn => btn.style.display = '');
+        if (sortLabel) sortLabel.style.display = '';
+        if (saveOrderBtn) saveOrderBtn.style.display = '';
+        if (sortMenuToggle) sortMenuToggle.style.display = '';
+        if (sortButtonsWrapper) sortButtonsWrapper.classList.remove('open');
+    } else if (focusMode === 1) {
+        // Performance mode - minimal UI with sort dropdown
+        songsList.classList.add('performance-mode');
+        document.body.classList.add('performance-active');
+        focusBtn.textContent = '👁️‍🗨️';
+        focusBtn.style.opacity = '0.8';
+        focusBtn.title = 'Toggle focus mode (currently: performance)';
+        if (overallProgress) overallProgress.style.display = 'none';
+        // In performance mode, use dropdown for sort
+        sortButtons.forEach(btn => btn.style.display = '');
+        if (sortLabel) sortLabel.style.display = '';
+        if (saveOrderBtn) saveOrderBtn.style.display = '';
+        if (sortMenuToggle) sortMenuToggle.style.display = 'block';
+        if (sortButtonsWrapper) sortButtonsWrapper.classList.remove('open');
+    } else {
+        // Hidden mode - hide most details
+        songsList.classList.add('focus-mode');
+        focusBtn.textContent = '🙈';
+        focusBtn.style.opacity = '0.6';
+        focusBtn.title = 'Toggle focus mode (currently: hidden)';
+        if (overallProgress) overallProgress.style.display = 'none';
+        sortButtons.forEach(btn => btn.style.display = 'none');
+        if (sortLabel) sortLabel.style.display = 'none';
+        if (saveOrderBtn) saveOrderBtn.style.display = 'none';
+        if (sortMenuToggle) sortMenuToggle.style.display = 'none';
     }
 }
 
@@ -883,8 +970,22 @@ function createSongCard(song) {
             </div>
         `;
 
+    // Create media row for audio/chart (used in performance mode)
+    const hasMedia = (song.audio_path || song.drive_file_id || song.chart_path);
+    let mediaRowHTML = '';
+    if (hasMedia) {
+        let audioLink = '';
+        if (song.audio_path) {
+            audioLink = `<div class="song-audio"><a class="audio-link" href="/media/${song.id}" title="Open linked audio"><span class="media-full">🎧 Open audio</span><span class="media-short">🎧 audio</span></a></div>`;
+        } else if (song.drive_file_id) {
+            audioLink = `<div class="song-audio"><a class="audio-link" href="https://drive.google.com/file/d/${song.drive_file_id}/view" target="_blank" title="Open audio from Google Drive"><span class="media-full">🎧 Open audio (Drive)</span><span class="media-short">🎧 audio</span></a></div>`;
+        }
+        let chartLink = song.chart_path ? `<div class="song-audio"><a class="audio-link" href="/chart/${song.id}" target="_blank" title="Open linked chart"><span class="media-full">📄 Open chart</span><span class="media-short">📄 chart</span></a></div>` : '';
+        mediaRowHTML = `<div class="song-media-row">${audioLink}${chartLink}</div>`;
+    }
+
     return `
-        <div class="song-card priority-${song.priority}" data-id="${song.id}">
+        <div class="song-card priority-${song.priority} collapsed" data-id="${song.id}">
             <div class="song-header">
                 <div class="song-info">
                     <div class="song-title-row">
@@ -912,13 +1013,14 @@ function createSongCard(song) {
                 </div>
             </div>
             
-            ${skillsHTML}
-            ${audioHTML}
-            ${chartHTML}
+            <div class="expand-indicator" onclick="toggleSongExpand(${song.id})"></div>
             
-            ${practiceSection}
-            
-            ${notesHTML}
+            <div class="song-details-collapsible">
+                ${skillsHTML}
+                ${mediaRowHTML}
+                ${practiceSection}
+                ${notesHTML}
+            </div>
         </div>
     `;
 }
@@ -1524,6 +1626,18 @@ function switchRepertoire(repertoireId) {
     // Switching repertoire unlocks and refreshes
     unlockReordering();
     currentRepertoireId = repertoireId;
+    
+    // Update burger menu name
+    const nameSpan = document.getElementById('currentRepertoireName');
+    const repertoire = repertoires.find(r => r.id === repertoireId);
+    if (nameSpan && repertoire) {
+        nameSpan.textContent = repertoire.name;
+    }
+    
+    // Close mobile menu
+    const tabs = document.getElementById('repertoireTabs');
+    if (tabs) tabs.classList.remove('open');
+    
     renderRepertoireTabs();
     loadSongs();
 }
@@ -2046,7 +2160,8 @@ function formatPerformanceHints(hints) {
     if (!hints) return '';
     // Replace **text** with <strong>text</strong>
     const formatted = hints.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    return `<span class="performance-hints">(${formatted})</span>`;
+    // Wrap in span with data attribute for CSS to handle brackets
+    return `<span class="performance-hints" data-hint="${hints.replace(/"/g, '&quot;')}">${formatted}</span>`;
 }
 
 // Insert bold formatting in performance hints textarea

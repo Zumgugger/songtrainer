@@ -12,19 +12,158 @@
             gap: 6px;
         }
         
-        /* Focus mode styles */
+        /* Focus mode styles (hidden - eye closed) */
         .songs-list.focus-mode .song-card .song-artist,
         .songs-list.focus-mode .song-card .song-release-date,
         .songs-list.focus-mode .song-card .last-practiced,
         .songs-list.focus-mode .song-card .song-actions,
         .songs-list.focus-mode .song-card .skills-section,
         .songs-list.focus-mode .song-card .song-audio,
-        .songs-list.focus-mode .song-card .practice-section {
-            display: none;
+        .songs-list.focus-mode .song-card .song-media-row,
+        .songs-list.focus-mode .song-card .practice-section,
+        .songs-list.focus-mode .song-card .song-notes,
+        .songs-list.focus-mode .song-card .expand-indicator,
+        .songs-list.focus-mode .song-card .song-details-collapsible {
+            display: none !important;
         }
         
         .songs-list.focus-mode .song-card .song-title-row {
             margin-bottom: 0;
+        }
+        
+        /* Performance mode styles (eye half-closed) */
+        .songs-list.performance-mode .song-card .song-artist,
+        .songs-list.performance-mode .song-card .song-release-date,
+        .songs-list.performance-mode .song-card .last-practiced,
+        .songs-list.performance-mode .song-card .skills-section,
+        .songs-list.performance-mode .song-card .practice-section,
+        .songs-list.performance-mode .song-card .song-notes,
+        .songs-list.performance-mode .song-card .priority-badge,
+        .songs-list.performance-mode .song-card .difficulty-badge,
+        .songs-list.performance-mode .song-card .drag-handle,
+        .songs-list.performance-mode .song-card .attach-btn,
+        .songs-list.performance-mode .song-card [onclick*="removeAudio"],
+        .songs-list.performance-mode .song-card [onclick*="removeChart"],
+        .songs-list.performance-mode .song-card [onclick*="archiveSong"],
+        .songs-list.performance-mode .song-card [onclick*="deleteSong"],
+        .songs-list.performance-mode .song-card .move-dropdown,
+        .songs-list.performance-mode .song-card .expand-indicator {
+            display: none !important;
+        }
+        
+        .songs-list.performance-mode .song-card .song-title-row {
+            margin-bottom: 0;
+        }
+        
+        /* Performance mode: edit button inline with title */
+        .songs-list.performance-mode .song-card .song-header {
+            flex-direction: row;
+            align-items: flex-start;
+        }
+        
+        .songs-list.performance-mode .song-card .song-actions {
+            display: flex !important;
+            position: absolute;
+            right: 15px;
+            top: 15px;
+        }
+        
+        .songs-list.performance-mode .song-card {
+            position: relative;
+        }
+        
+        .songs-list.performance-mode .song-card .song-actions button[onclick*="editSongById"] {
+            display: inline-flex !important;
+        }
+        
+        /* Performance mode: larger title and hints */
+        .songs-list.performance-mode .song-card .song-title {
+            font-size: 1.4rem;
+        }
+        
+        .songs-list.performance-mode .song-card .song-number {
+            font-size: 1.2rem;
+            min-width: 36px;
+            height: 36px;
+        }
+        
+        /* Performance mode: audio and chart in one line */
+        .songs-list.performance-mode .song-media-row {
+            display: flex !important;
+            flex-direction: row !important;
+            gap: 15px;
+            align-items: center;
+            margin-top: 8px;
+        }
+        
+        .songs-list.performance-mode .song-media-row .song-audio {
+            margin: 0;
+        }
+        
+        /* Performance mode: show short labels, hide full labels */
+        .songs-list.performance-mode .media-full {
+            display: none;
+        }
+        
+        .songs-list.performance-mode .media-short {
+            display: inline;
+        }
+        
+        /* Normal mode: show full labels, hide short labels */
+        .media-short {
+            display: none;
+        }
+        
+        /* Performance mode: larger performance hints without brackets */
+        .songs-list.performance-mode .performance-hints {
+            font-size: 1.2rem;
+            font-weight: normal;
+            display: block;
+            margin-top: 6px;
+            color: var(--text-secondary);
+        }
+        
+        /* Normal mode: performance hints with brackets */
+        .performance-hints::before {
+            content: '(';
+        }
+        .performance-hints::after {
+            content: ')';
+        }
+        
+        /* Performance mode: remove brackets */
+        .songs-list.performance-mode .performance-hints::before,
+        .songs-list.performance-mode .performance-hints::after {
+            content: '';
+        }
+        
+        /* Performance mode: always show details (not collapsed) */
+        .songs-list.performance-mode .song-card.collapsed .song-details-collapsible {
+            display: block !important;
+        }
+        
+        /* Performance mode: show sort dropdown, hide individual buttons */
+        body.performance-active .sort-menu-toggle {
+            display: block !important;
+        }
+        
+        body.performance-active .sort-buttons-wrapper {
+            display: none;
+        }
+        
+        body.performance-active .sort-buttons-wrapper.open {
+            display: flex;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow-md);
+            padding: 10px;
+            z-index: 100;
+            flex-wrap: wrap;
+            gap: 5px;
         }
     </style>
     </head>
@@ -33,20 +172,21 @@
         <header>
             <h1>🎵 Song Trainer</h1>
             <div class="header-actions">
-                <button id="addSongBtn" class="btn btn-primary">+ Add Song</button>
-                <a href="/admin" id="adminLink" class="btn btn-secondary" style="display:none;">⚙️ Admin</a>
-                <div class="user-chip" style="display:flex; align-items:center; gap:8px;">
-                    <span id="userEmail" style="font-weight:600; color: var(--text-secondary);"></span>
+                <button id="addSongBtn" class="btn btn-primary"><span class="btn-text">+ Add Song</span><span class="btn-icon-only">+</span></button>
+                <a href="/admin" id="adminLink" class="btn btn-secondary" style="display:none;"><span class="btn-text">⚙️ Admin</span><span class="btn-icon-only">⚙️</span></a>
+                <div class="user-section">
+                    <div id="userAvatar" class="user-avatar" title=""></div>
                     <button id="logoutBtn" class="btn btn-link" style="padding:6px 10px;">Logout</button>
+                    <div class="app-credits-inline">
+                        <a href="https://zumgugger.ch" target="_blank" rel="noopener noreferrer">by zumgugger</a>
+                    </div>
                 </div>
-            </div>
-            <div class="app-credits">
-                <p>Software by <a href="https://zumgugger.ch" target="_blank" rel="noopener noreferrer">zumgugger</a></p>
             </div>
         </header>
 
-        <!-- Repertoire Tabs -->
+        <!-- Repertoire Tabs with Burger Menu -->
         <div class="repertoire-tabs">
+            <button id="repertoireBurger" class="repertoire-burger" onclick="toggleRepertoireMenu()" title="Select repertoire">☰ <span id="currentRepertoireName">Repertoire</span></button>
             <div id="repertoireTabs" class="tabs">
                 <!-- Will be populated dynamically -->
             </div>
@@ -99,20 +239,23 @@
 
         <div class="controls">
             <div class="sort-controls">
-                <label>Sort by:</label>
-                <button class="sort-btn active" data-sort="song_number">Order</button>
-                <button class="sort-btn" data-sort="name">Name</button>
-                <button class="sort-btn" data-sort="priority">Priority</button>
-                <button class="sort-btn" data-sort="difficulty">Difficulty</button>
-                <button class="sort-btn" data-sort="last_practiced">Last Practiced</button>
-                <button class="sort-btn" data-sort="release_date">Release Date</button>
-                <button class="sort-btn" data-sort="skills_mastered">Skills</button>
-                <button class="sort-btn" data-sort="practice_gap">Gap</button>
-                <button id="focusModeToggle" class="focus-toggle-btn" onclick="toggleFocusMode()" title="Toggle focus mode (show/hide details)" style="margin-left: 20px; background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0;">👁️</button>
-                <button id="saveOrderBtn" class="focus-toggle-btn" onclick="saveCurrentOrder()" title="Save current visual order as song order" style="background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0; margin-left: 5px;">💾</button>
-            </div>
-            <div class="search-controls">
-                <input type="text" id="searchInput" placeholder="Search song title..." />
+                <button id="sortMenuToggle" class="sort-menu-toggle" onclick="toggleSortMenu()">🔽 Sort</button>
+                <div id="sortButtonsWrapper" class="sort-buttons-wrapper">
+                    <label>Sort by:</label>
+                    <button class="sort-btn active" data-sort="song_number">Order</button>
+                    <button class="sort-btn" data-sort="name">Name</button>
+                    <button class="sort-btn" data-sort="priority">Priority</button>
+                    <button class="sort-btn" data-sort="difficulty">Difficulty</button>
+                    <button class="sort-btn" data-sort="last_practiced">Last Practiced</button>
+                    <button class="sort-btn" data-sort="release_date">Release Date</button>
+                    <button class="sort-btn" data-sort="skills_mastered">Skills</button>
+                    <button class="sort-btn" data-sort="practice_gap">Gap</button>
+                </div>
+                <button id="focusModeToggle" class="focus-toggle-btn" onclick="toggleFocusMode()" title="Toggle focus mode (show/hide details)" style="background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0;">👁️</button>
+                <div class="search-controls-inline">
+                    <input type="text" id="searchInput" placeholder="Search..." />
+                </div>
+                <button id="saveOrderBtn" class="focus-toggle-btn save-btn-right" onclick="saveCurrentOrder()" title="Save current visual order as song order" style="background: none; border: none; font-size: 1.3rem; cursor: pointer; padding: 0;">💾</button>
             </div>
         </div>
 
