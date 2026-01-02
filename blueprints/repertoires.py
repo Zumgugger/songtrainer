@@ -1084,3 +1084,95 @@ def generate_setlist_pdf(repertoire_id):
             download_name=filename,
             mimetype='application/pdf'
         )
+
+
+@repertoires_bp.route('/api/repertoires/<int:repertoire_id>/import-drive-ids', methods=['POST'])
+@login_required
+def import_drive_ids(repertoire_id):
+    """Import Google Drive file IDs by matching filenames to song titles"""
+    data = request.json or {}
+    mappings = data.get('mappings', [])
+    
+    if not mappings:
+        return jsonify({'error': 'No mappings provided'}), 400
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Check repertoire access
+        repertoire = cursor.execute(
+            'SELECT name, user_id FROM repertoires WHERE id = ?',
+            (repertoire_id,)
+        ).fetchone()
+        
+        if not repertoire or (g.current_user['role'] != 'admin' and repertoire['user_id'] != g.current_user['id']):
+            return jsonify({'error': 'Repertoire not found'}), 404
+        
+        # Get all songs in this repertoire
+        songs = cursor.execute(
+            'SELECT id, title FROM songs WHERE repertoire_id = ?',
+            (repertoire_id,)
+        ).fetchall()
+        
+        # Create a mapping of normalized titles to song IDs
+        # Normalize by removing extensions, lowercasing, stripping whitespace
+        title_to_song = {}
+        for song in songs:
+            # Normalize the song title
+            normalized = song['title'].lower().strip()
+            title_to_song[normalized] = song['id']
+            # Also try without common suffixes
+            if normalized.endswith(' (live)'):
+                title_to_song[normalized.replace(' (live)', '')] = song['id']
+        
+        matched = 0
+        not_found = []
+        
+        for mapping in mappings:
+            filename = mapping.get('filename', '')
+            drive_id = mapping.get('drive_id', '')
+            
+            if not filename or not drive_id:
+                continue
+            
+            # Normalize filename (remove extension, lowercase, strip)
+            normalized_filename = filename.lower().strip()
+            # Remove common audio extensions
+            for ext in ['.mp3', '.m4a', '.wav', '.flac', '.ogg', '.aac']:
+                if normalized_filename.endswith(ext):
+                    normalized_filename = normalized_filename[:-len(ext)]
+                    break
+            
+            # Try to find matching song
+            song_id = title_to_song.get(normalized_filename)
+            
+            # If not found, try partial matching
+            if not song_id:
+                for title, sid in title_to_song.items():
+                    if normalized_filename in title or title in normalized_filename:
+                        song_id = sid
+                        break
+            
+            if song_id:
+                cursor.execute(
+                    'UPDATE songs SET drive_file_id = ? WHERE id = ?',
+                    (drive_id, song_id)
+                )
+                matched += 1
+            else:
+                not_found.append(filename)
+        
+        conn.commit()
+        
+        details = ''
+        if not_found:
+            details = f"Not matched: {', '.join(not_found[:10])}"
+            if len(not_found) > 10:
+                details += f" and {len(not_found) - 10} more..."
+        
+        return jsonify({
+            'matched': matched,
+            'not_found': len(not_found),
+            'details': details
+        })
+

@@ -1654,6 +1654,12 @@ function openRepertoireModal(repertoire = null) {
             setlistSection.style.display = 'block';
         }
         
+        // Show import Drive IDs section for existing repertoires
+        const importDriveSection = document.getElementById('importDriveSection');
+        if (importDriveSection) {
+            importDriveSection.style.display = 'block';
+        }
+        
         // Show share section and load users for existing repertoires
         if (shareSection) {
             shareSection.style.display = 'block';
@@ -1687,6 +1693,10 @@ function openRepertoireModal(repertoire = null) {
         const setlistSection = document.getElementById('setlistSection');
         if (setlistSection) {
             setlistSection.style.display = 'none';
+        }
+        const importDriveSection = document.getElementById('importDriveSection');
+        if (importDriveSection) {
+            importDriveSection.style.display = 'none';
         }
         if (shareSection) {
             shareSection.style.display = 'none';
@@ -2114,5 +2124,90 @@ async function generateSetlistPDF() {
     } catch (error) {
         console.error('Error generating PDF:', error);
         alert('Error generating PDF');
+    }
+}
+
+// Google Drive ID Import Functions
+function openDriveImportModal() {
+    document.getElementById('driveImportData').value = '';
+    document.getElementById('driveImportModal').style.display = 'block';
+}
+
+function closeDriveImportModal() {
+    document.getElementById('driveImportModal').style.display = 'none';
+}
+
+async function importDriveIds() {
+    const repertoireId = document.getElementById('repertoireId').value;
+    if (!repertoireId) {
+        alert('Please save the repertoire first');
+        return;
+    }
+    
+    const importData = document.getElementById('driveImportData').value.trim();
+    if (!importData) {
+        alert('Please paste some data to import');
+        return;
+    }
+    
+    // Parse the input - supports tab, comma, or pipe separated values
+    const lines = importData.split('\n').filter(line => line.trim());
+    const mappings = [];
+    
+    for (const line of lines) {
+        // Try different separators: tab, comma, pipe
+        let parts;
+        if (line.includes('\t')) {
+            parts = line.split('\t');
+        } else if (line.includes('|')) {
+            parts = line.split('|');
+        } else if (line.includes(',')) {
+            parts = line.split(',');
+        } else {
+            continue; // Skip lines without valid separators
+        }
+        
+        if (parts.length >= 2) {
+            const filename = parts[0].trim();
+            const driveId = parts[1].trim();
+            
+            // Extract ID if it's a full Drive URL
+            let extractedId = driveId;
+            const urlMatch = driveId.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            if (urlMatch) {
+                extractedId = urlMatch[1];
+            }
+            
+            if (filename && extractedId) {
+                mappings.push({ filename, drive_id: extractedId });
+            }
+        }
+    }
+    
+    if (mappings.length === 0) {
+        alert('No valid mappings found. Please use format:\nfilename.mp3<tab>drive_file_id\nor\nfilename.mp3,drive_file_id');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/repertoires/${repertoireId}/import-drive-ids`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mappings })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            closeDriveImportModal();
+            alert(`Import complete!\n\nMatched: ${result.matched}\nNot found: ${result.not_found}\n\n${result.details || ''}`);
+            // Refresh the songs list
+            await loadSongs();
+        } else {
+            alert(`Error: ${result.error || 'Import failed'}`);
+        }
+    } catch (error) {
+        console.error('Error importing Drive IDs:', error);
+        alert('Error importing Drive IDs');
     }
 }

@@ -271,6 +271,14 @@
                     <small style="color: var(--text-muted);">Creates a copy of this repertoire (including all songs and skills) for the selected user.</small>
                 </div>
 
+                <div class="form-group" id="importDriveSection" style="display:none;">
+                    <label>Import Google Drive File IDs</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button type="button" class="btn btn-secondary" onclick="openDriveImportModal()">☁️ Import Drive IDs</button>
+                    </div>
+                    <small style="color: var(--text-muted);">Match songs with Google Drive files for audio playback on server.</small>
+                </div>
+
                 <div class="form-actions" style="display: flex; flex-direction: column; gap: 10px;">
                     <div style="display: flex; gap: 10px;">
                         <button type="button" class="btn btn-success" id="syncRepertoireBtn" style="display:none;">🔄 Sync Folders</button>
@@ -283,6 +291,32 @@
                     </div>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Drive Import Modal -->
+    <div id="driveImportModal" class="modal" style="display:none;">
+        <div class="modal-content" style="max-width: 600px;">
+            <h2>Import Google Drive File IDs</h2>
+            <div class="form-group">
+                <label>Paste filename and file ID pairs (one per line)</label>
+                <textarea id="driveImportData" rows="12" placeholder="song name.mp3&#9;1aBcDeFgHiJkLmNoPqRsTuVwXyZ
+another song.mp3&#9;2xYzAbCdEfGhIjKlMnOpQrS
+
+Format: filename[TAB]file_id
+OR: filename[TAB]https://drive.google.com/file/d/FILE_ID/view"></textarea>
+                <small style="color: var(--text-muted);">
+                    <strong>How to get this data:</strong><br>
+                    1. Open your Google Drive folder<br>
+                    2. Select all files → Right-click → Get link<br>
+                    3. Paste links here with filenames, OR use a Drive export tool<br>
+                    Format: <code>filename.mp3[TAB]file_id</code> (one per line)
+                </small>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-primary" onclick="importDriveIds()">Import</button>
+                <button type="button" class="btn btn-secondary" onclick="closeDriveImportModal()">Cancel</button>
+            </div>
         </div>
     </div>
 
