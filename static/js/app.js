@@ -55,6 +55,11 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// Check if current viewport is mobile/tablet
+function isMobileView() {
+    return window.innerWidth <= 768;
+}
+
 // Toggle song card expansion on mobile
 function toggleSongExpand(songId) {
     const card = document.querySelector(`.song-card[data-id="${songId}"]`);
@@ -62,6 +67,22 @@ function toggleSongExpand(songId) {
         card.classList.toggle('collapsed');
     }
 }
+
+// Update collapsed state on resize
+let lastMobileState = isMobileView();
+window.addEventListener('resize', () => {
+    const currentMobileState = isMobileView();
+    if (currentMobileState !== lastMobileState) {
+        lastMobileState = currentMobileState;
+        document.querySelectorAll('.song-card').forEach(card => {
+            if (currentMobileState) {
+                card.classList.add('collapsed');
+            } else {
+                card.classList.remove('collapsed');
+            }
+        });
+    }
+});
 
 // Redirect to login on 401 for any fetch
 const originalFetch = window.fetch;
@@ -984,8 +1005,9 @@ function createSongCard(song) {
         mediaRowHTML = `<div class="song-media-row">${audioLink}${chartLink}</div>`;
     }
 
+    const collapsedClass = isMobileView() ? 'collapsed' : '';
     return `
-        <div class="song-card priority-${song.priority} collapsed" data-id="${song.id}">
+        <div class="song-card priority-${song.priority} ${collapsedClass}" data-id="${song.id}">
             <div class="song-header">
                 <div class="song-info">
                     <div class="song-title-row">
