@@ -2,8 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Song Trainer - Practice Tracker</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Practice tracker for musicians - track your song repertoire and skill mastery">
+    <meta name="theme-color" content="#6C63FF">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SongTrainer">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/icon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+    
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
         .tab {
@@ -474,5 +490,20 @@ OR: filename[TAB]https://drive.google.com/file/d/FILE_ID/view"></textarea>
     <input type="file" id="songlistFolderInput" webkitdirectory directory multiple style="display:none" />
     <input type="file" id="mp3FolderInput" webkitdirectory directory multiple style="display:none" />
     <input type="file" id="sheetFolderInput" webkitdirectory directory multiple style="display:none" />
+    
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/sw.js')
+                    .then((registration) => {
+                        console.log('ServiceWorker registered:', registration.scope);
+                    })
+                    .catch((error) => {
+                        console.log('ServiceWorker registration failed:', error);
+                    });
+            });
+        }
+    </script>
 </body>
 </html>
