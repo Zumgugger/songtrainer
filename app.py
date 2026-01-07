@@ -40,6 +40,7 @@ from blueprints.songs import songs_bp
 from blueprints.skills import skills
 from blueprints.repertoires import repertoires_bp
 from blueprints.settings import settings_bp
+from blueprints.dashboard import dashboard_bp
 
 
 def create_app():
@@ -71,6 +72,7 @@ def create_app():
     app.register_blueprint(skills, url_prefix='')
     app.register_blueprint(repertoires_bp, url_prefix='')
     app.register_blueprint(settings_bp, url_prefix='')
+    app.register_blueprint(dashboard_bp, url_prefix='')
     
     # ==================== REQUEST HANDLERS ====================
     

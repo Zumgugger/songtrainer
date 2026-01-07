@@ -21,6 +21,7 @@
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
     
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         .tab {
             display: flex;
@@ -260,7 +261,128 @@
             <div id="repertoireTabs" class="tabs">
                 <!-- Will be populated dynamically -->
             </div>
+            <button id="dashboardBtn" class="btn btn-small dashboard-tab-btn" onclick="showDashboard()" title="View dashboard">📊 Dashboard</button>
             <button id="addRepertoireBtn" class="btn btn-small" title="Add new repertoire">+ Repertoire</button>
+        </div>
+
+        <!-- Dashboard View -->
+        <div id="dashboardView" class="dashboard-view" style="display: none;">
+            <div class="dashboard-header">
+                <h2>📊 Progress Dashboard</h2>
+                <div class="dashboard-controls">
+                    <select id="dashboardPeriod" onchange="loadDashboardData()">
+                        <option value="week">Last 7 Days</option>
+                        <option value="month" selected>Last 30 Days</option>
+                        <option value="year">Last Year</option>
+                        <option value="all">All Time</option>
+                    </select>
+                    <select id="dashboardRepertoire" onchange="loadDashboardData()">
+                        <option value="">All Repertoires</option>
+                        <!-- Populated dynamically -->
+                    </select>
+                    <button class="btn btn-secondary" onclick="hideDashboard()">← Back to Songs</button>
+                </div>
+            </div>
+            
+            <!-- Summary Cards -->
+            <div class="dashboard-cards">
+                <div class="dashboard-card">
+                    <div class="card-icon">⏱️</div>
+                    <div class="card-content">
+                        <div class="card-value" id="dashPracticeTime">0h 0m</div>
+                        <div class="card-label">Practice Time</div>
+                    </div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="card-icon">🎵</div>
+                    <div class="card-content">
+                        <div class="card-value" id="dashSongsPracticed">0</div>
+                        <div class="card-label">Songs Practiced</div>
+                    </div>
+                </div>
+                <div class="dashboard-card">
+                    <div class="card-icon">✅</div>
+                    <div class="card-content">
+                        <div class="card-value" id="dashSkillsMastered">0/0</div>
+                        <div class="card-label">Skills Mastered</div>
+                    </div>
+                </div>
+                <div class="dashboard-card streak-card">
+                    <div class="card-icon">🔥</div>
+                    <div class="card-content">
+                        <div class="card-value" id="dashStreak">0</div>
+                        <div class="card-label">Day Streak</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Activity Heatmap -->
+            <div class="dashboard-section">
+                <h3>Practice Activity</h3>
+                <div class="heatmap-container">
+                    <div class="heatmap-months" id="heatmapMonths"></div>
+                    <div class="heatmap-wrapper">
+                        <div class="heatmap-days">
+                            <span>Mon</span>
+                            <span>Wed</span>
+                            <span>Fri</span>
+                        </div>
+                        <div class="heatmap-grid" id="heatmapGrid"></div>
+                    </div>
+                    <div class="heatmap-legend">
+                        <span>Less</span>
+                        <div class="legend-box level-0"></div>
+                        <div class="legend-box level-1"></div>
+                        <div class="legend-box level-2"></div>
+                        <div class="legend-box level-3"></div>
+                        <div class="legend-box level-4"></div>
+                        <span>More</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Charts Row -->
+            <div class="dashboard-charts">
+                <div class="dashboard-section chart-section">
+                    <h3>Practice Time Trend</h3>
+                    <div class="chart-container">
+                        <canvas id="practiceTimeChart"></canvas>
+                    </div>
+                </div>
+                <div class="dashboard-section chart-section">
+                    <h3>Practice by Repertoire</h3>
+                    <div class="chart-container">
+                        <canvas id="repertoireChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Additional Stats -->
+            <div class="dashboard-section">
+                <h3>Repertoire Breakdown</h3>
+                <div class="repertoire-breakdown" id="repertoireBreakdown">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+            
+            <!-- Streak Details -->
+            <div class="dashboard-section streak-section">
+                <h3>🔥 Streak Details</h3>
+                <div class="streak-details">
+                    <div class="streak-stat">
+                        <span class="streak-label">Current Streak</span>
+                        <span class="streak-value" id="currentStreakDetail">0 days</span>
+                    </div>
+                    <div class="streak-stat">
+                        <span class="streak-label">Longest Streak</span>
+                        <span class="streak-value" id="longestStreakDetail">0 days</span>
+                    </div>
+                    <div class="streak-stat">
+                        <span class="streak-label">Last Practice</span>
+                        <span class="streak-value" id="lastPracticeDetail">-</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="overall-progress">

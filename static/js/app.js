@@ -2384,3 +2384,383 @@ async function importDriveIds() {
         alert('Error importing Drive IDs');
     }
 }
+
+// ==================== DASHBOARD FUNCTIONALITY ====================
+
+let dashboardVisible = false;
+let practiceTimeChart = null;
+let repertoireChart = null;
+
+function showDashboard() {
+    dashboardVisible = true;
+    document.getElementById('dashboardView').style.display = 'block';
+    document.querySelector('.overall-progress').style.display = 'none';
+    document.querySelector('.controls').style.display = 'none';
+    document.getElementById('songsList').style.display = 'none';
+    
+    // Update repertoire selector
+    const select = document.getElementById('dashboardRepertoire');
+    select.innerHTML = '<option value="">All Repertoires</option>';
+    repertoires.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.id;
+        opt.textContent = r.name;
+        select.appendChild(opt);
+    });
+    
+    // Highlight dashboard button
+    document.querySelectorAll('.repertoire-tabs .tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('dashboardBtn').classList.add('active');
+    
+    loadDashboardData();
+}
+
+function hideDashboard() {
+    dashboardVisible = false;
+    document.getElementById('dashboardView').style.display = 'none';
+    document.querySelector('.overall-progress').style.display = 'block';
+    document.querySelector('.controls').style.display = 'block';
+    document.getElementById('songsList').style.display = 'block';
+    
+    // Restore active tab
+    document.getElementById('dashboardBtn').classList.remove('active');
+    renderRepertoireTabs();
+}
+
+async function loadDashboardData() {
+    const period = document.getElementById('dashboardPeriod').value;
+    const repertoireId = document.getElementById('dashboardRepertoire').value;
+    
+    const params = new URLSearchParams({ period });
+    if (repertoireId) params.append('repertoire_id', repertoireId);
+    
+    try {
+        // Load all dashboard data in parallel
+        const [summaryRes, streaksRes, activityRes, trendsRes, breakdownRes] = await Promise.all([
+            fetch(`/api/dashboard/summary?${params}`),
+            fetch('/api/dashboard/streaks'),
+            fetch(`/api/dashboard/activity?weeks=12&${repertoireId ? `repertoire_id=${repertoireId}` : ''}`),
+            fetch(`/api/dashboard/trends?${params}`),
+            fetch(`/api/dashboard/repertoire-breakdown?${params}`)
+        ]);
+        
+        const [summary, streaks, activity, trends, breakdown] = await Promise.all([
+            summaryRes.json(),
+            streaksRes.json(),
+            activityRes.json(),
+            trendsRes.json(),
+            breakdownRes.json()
+        ]);
+        
+        // Update summary cards
+        document.getElementById('dashPracticeTime').textContent = summary.practice_time.formatted;
+        document.getElementById('dashSongsPracticed').textContent = summary.songs_practiced;
+        document.getElementById('dashSkillsMastered').textContent = `${summary.skills.mastered}/${summary.skills.total}`;
+        document.getElementById('dashStreak').textContent = streaks.current_streak;
+        
+        // Update streak card styling based on streak
+        const streakCard = document.querySelector('.streak-card');
+        if (streaks.current_streak >= 7) {
+            streakCard.classList.add('streak-hot');
+        } else {
+            streakCard.classList.remove('streak-hot');
+        }
+        
+        // Update streak details
+        document.getElementById('currentStreakDetail').textContent = `${streaks.current_streak} days`;
+        document.getElementById('longestStreakDetail').textContent = `${streaks.longest_streak} days`;
+        document.getElementById('lastPracticeDetail').textContent = streaks.last_practice_date 
+            ? formatDate(streaks.last_practice_date)
+            : 'Never';
+        
+        // Render heatmap
+        renderHeatmap(activity.activity);
+        
+        // Render charts
+        renderPracticeTimeChart(trends.practice_time, period);
+        renderRepertoireChart(breakdown.breakdown);
+        
+        // Render breakdown list
+        renderRepertoireBreakdown(breakdown.breakdown);
+        
+    } catch (error) {
+        console.error('Error loading dashboard data:', error);
+    }
+}
+
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function renderHeatmap(activityData) {
+    const grid = document.getElementById('heatmapGrid');
+    const monthsContainer = document.getElementById('heatmapMonths');
+    grid.innerHTML = '';
+    monthsContainer.innerHTML = '';
+    
+    if (!activityData || activityData.length === 0) return;
+    
+    // Organize by weeks (columns) with days as rows
+    const weeks = [];
+    let currentWeek = [];
+    let lastDate = null;
+    
+    activityData.forEach((day, idx) => {
+        const date = new Date(day.date);
+        const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+        
+        // Start new week on Sunday
+        if (dayOfWeek === 0 && currentWeek.length > 0) {
+            weeks.push(currentWeek);
+            currentWeek = [];
+        }
+        
+        currentWeek.push(day);
+    });
+    
+    if (currentWeek.length > 0) {
+        weeks.push(currentWeek);
+    }
+    
+    // Track months for labels
+    const monthPositions = [];
+    let lastMonth = -1;
+    
+    // Render weeks as columns
+    weeks.forEach((week, weekIdx) => {
+        const weekDiv = document.createElement('div');
+        weekDiv.className = 'heatmap-week';
+        
+        // Fill in missing days at start of week
+        if (week.length > 0) {
+            const firstDayOfWeek = new Date(week[0].date).getDay();
+            for (let i = 0; i < firstDayOfWeek; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.className = 'heatmap-cell empty';
+                weekDiv.appendChild(emptyCell);
+            }
+        }
+        
+        week.forEach(day => {
+            const date = new Date(day.date);
+            const month = date.getMonth();
+            
+            // Track month changes
+            if (month !== lastMonth) {
+                monthPositions.push({ month, weekIdx });
+                lastMonth = month;
+            }
+            
+            const cell = document.createElement('div');
+            cell.className = `heatmap-cell level-${day.level}`;
+            cell.title = `${day.date}: ${formatSeconds(day.seconds)} (${day.sessions} sessions)`;
+            weekDiv.appendChild(cell);
+        });
+        
+        grid.appendChild(weekDiv);
+    });
+    
+    // Render month labels
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    monthPositions.forEach(({ month, weekIdx }) => {
+        const label = document.createElement('span');
+        label.textContent = monthNames[month];
+        label.style.marginLeft = `${weekIdx * 14}px`;
+        monthsContainer.appendChild(label);
+    });
+}
+
+function formatSeconds(seconds) {
+    if (!seconds) return '0m';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) {
+        return `${hours}h ${minutes}m`;
+    }
+    return `${minutes}m`;
+}
+
+function renderPracticeTimeChart(data, period) {
+    const ctx = document.getElementById('practiceTimeChart').getContext('2d');
+    
+    if (practiceTimeChart) {
+        practiceTimeChart.destroy();
+    }
+    
+    const labels = data.map(d => {
+        if (period === 'year') {
+            // Weekly data - show week number
+            return d.date;
+        }
+        // Daily data - format nicely
+        const date = new Date(d.date);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    
+    const values = data.map(d => Math.round(d.seconds / 60)); // Convert to minutes
+    
+    practiceTimeChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Practice Time (minutes)',
+                data: values,
+                backgroundColor: 'rgba(108, 99, 255, 0.7)',
+                borderColor: 'rgba(108, 99, 255, 1)',
+                borderWidth: 1,
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => {
+                            const mins = context.raw;
+                            const hours = Math.floor(mins / 60);
+                            const m = mins % 60;
+                            return hours > 0 ? `${hours}h ${m}m` : `${m}m`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: (value) => {
+                            if (value >= 60) {
+                                return `${Math.floor(value / 60)}h`;
+                            }
+                            return `${value}m`;
+                        }
+                    }
+                },
+                x: {
+                    ticks: {
+                        maxTicksLimit: 10
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderRepertoireChart(data) {
+    const ctx = document.getElementById('repertoireChart').getContext('2d');
+    
+    if (repertoireChart) {
+        repertoireChart.destroy();
+    }
+    
+    // Filter out repertoires with no practice time
+    const filtered = data.filter(d => d.seconds > 0);
+    
+    if (filtered.length === 0) {
+        repertoireChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['No data'],
+                datasets: [{
+                    data: [1],
+                    backgroundColor: ['#e0e0e0']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right'
+                    }
+                }
+            }
+        });
+        return;
+    }
+    
+    const colors = [
+        'rgba(108, 99, 255, 0.8)',
+        'rgba(255, 99, 132, 0.8)',
+        'rgba(75, 192, 192, 0.8)',
+        'rgba(255, 206, 86, 0.8)',
+        'rgba(153, 102, 255, 0.8)',
+        'rgba(255, 159, 64, 0.8)',
+        'rgba(54, 162, 235, 0.8)',
+        'rgba(199, 199, 199, 0.8)'
+    ];
+    
+    repertoireChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: filtered.map(d => d.name),
+            datasets: [{
+                data: filtered.map(d => Math.round(d.seconds / 60)),
+                backgroundColor: colors.slice(0, filtered.length),
+                borderWidth: 2,
+                borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        boxWidth: 12,
+                        padding: 10
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => {
+                            const mins = context.raw;
+                            const hours = Math.floor(mins / 60);
+                            const m = mins % 60;
+                            return ` ${context.label}: ${hours > 0 ? `${hours}h ${m}m` : `${m}m`}`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderRepertoireBreakdown(data) {
+    const container = document.getElementById('repertoireBreakdown');
+    container.innerHTML = '';
+    
+    // Calculate max for relative bars
+    const maxSeconds = Math.max(...data.map(d => d.seconds), 1);
+    
+    data.forEach(rep => {
+        const item = document.createElement('div');
+        item.className = 'breakdown-item';
+        
+        const percentage = (rep.seconds / maxSeconds) * 100;
+        
+        item.innerHTML = `
+            <div class="breakdown-header">
+                <span class="breakdown-name">${rep.name}</span>
+                <span class="breakdown-stats">
+                    <span class="breakdown-time">${rep.formatted}</span>
+                    <span class="breakdown-sessions">${rep.sessions} sessions</span>
+                </span>
+            </div>
+            <div class="breakdown-bar-container">
+                <div class="breakdown-bar" style="width: ${percentage}%"></div>
+            </div>
+        `;
+        
+        container.appendChild(item);
+    });
+}
+
