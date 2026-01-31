@@ -675,6 +675,22 @@ OR: filename[TAB]https://drive.google.com/file/d/FILE_ID/view"></textarea>
         </div>
     </div>
 
+    <!-- Chart Viewer Modal (fullscreen, with close button for PWA) -->
+    <div id="chartViewerModal" class="chart-viewer-modal" style="display:none;">
+        <div class="chart-viewer-header">
+            <span id="chartViewerTitle" class="chart-viewer-title"></span>
+            <button class="chart-viewer-close" onclick="closeChartViewer()" title="Close">✕</button>
+        </div>
+        <iframe id="chartViewerFrame" class="chart-viewer-frame"></iframe>
+        <div id="chartViewerDownload" class="chart-viewer-download" style="display:none;">
+            <div class="download-message">
+                <span class="download-icon">📄</span>
+                <p>This <span class="file-type">document</span> format cannot be previewed in the app.</p>
+                <a class="download-link btn btn-primary" href="#" download>Download File</a>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <!-- Hidden file input for attaching audio -->
     <input type="file" id="audioFileInput" accept=".mp3,.m4a,.aac,.wav,.flac,.ogg" style="display:none" />

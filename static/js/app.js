@@ -39,6 +39,86 @@ function closeSettingsModal() {
     document.getElementById('settingsModal').style.display = 'none';
 }
 
+// Chart Viewer (for PWA-friendly chart viewing with close button)
+function isRunningAsPWA() {
+    // Check if running in standalone mode (PWA) or fullscreen
+    return window.matchMedia('(display-mode: standalone)').matches ||
+           window.matchMedia('(display-mode: fullscreen)').matches ||
+           window.navigator.standalone === true; // iOS Safari
+}
+
+// File extensions that can be viewed in an iframe
+const VIEWABLE_CHART_EXTENSIONS = ['.pdf', '.png', '.jpg', '.jpeg', '.gif'];
+
+function getFileExtension(path) {
+    if (!path) return '';
+    const match = path.match(/\.[^.]+$/);
+    return match ? match[0].toLowerCase() : '';
+}
+
+function openChartViewer(songId) {
+    const song = songs.find(s => s.id === songId);
+    if (!song) return;
+    
+    // In browser mode, open in new tab as usual
+    if (!isRunningAsPWA()) {
+        window.open(`/chart/${songId}`, '_blank');
+        return;
+    }
+    
+    // In PWA mode, use the modal viewer with close button
+    const modal = document.getElementById('chartViewerModal');
+    const frame = document.getElementById('chartViewerFrame');
+    const downloadFallback = document.getElementById('chartViewerDownload');
+    const title = document.getElementById('chartViewerTitle');
+    
+    title.textContent = song.title || 'Chart';
+    
+    // Check if the file format is viewable in an iframe
+    const ext = getFileExtension(song.chart_path);
+    const isViewable = VIEWABLE_CHART_EXTENSIONS.includes(ext);
+    
+    if (isViewable) {
+        // Show iframe, hide download fallback
+        frame.src = `/chart/${songId}`;
+        frame.style.display = 'block';
+        downloadFallback.style.display = 'none';
+    } else {
+        // Show download fallback, hide iframe
+        frame.src = '';
+        frame.style.display = 'none';
+        downloadFallback.style.display = 'flex';
+        downloadFallback.querySelector('.download-link').href = `/chart/${songId}`;
+        downloadFallback.querySelector('.file-type').textContent = ext.toUpperCase().replace('.', '') || 'Document';
+    }
+    
+    modal.style.display = 'flex';
+    
+    // Prevent body scroll when modal is open
+    document.body.style.overflow = 'hidden';
+}
+
+function closeChartViewer() {
+    const modal = document.getElementById('chartViewerModal');
+    const frame = document.getElementById('chartViewerFrame');
+    
+    modal.style.display = 'none';
+    frame.src = ''; // Clear iframe to stop any loading
+    
+    // Restore body scroll
+    document.body.style.overflow = '';
+}
+
+// Close chart viewer on Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const chartModal = document.getElementById('chartViewerModal');
+        if (chartModal && chartModal.style.display !== 'none') {
+            closeChartViewer();
+        }
+    }
+});
+
 // Reorder lock: prevent re-sorting/filtering after quick actions (e.g., toggling a skill)
 let reorderLocked = false;
 let lastRenderedSongIds = [];
@@ -959,7 +1039,7 @@ function createSongCard(song) {
 
     const chartHTML = song.chart_path ? `
         <div class="song-audio">
-            <a class="audio-link" href="/chart/${song.id}" target="_blank" title="Open linked chart">
+            <a class="audio-link" href="#" onclick="openChartViewer(${song.id}); return false;" title="Open linked chart">
                 📄 Open chart
             </a>
         </div>
@@ -1037,7 +1117,7 @@ function createSongCard(song) {
             const linkTextShort = downloadPref ? '🎧 download' : '🎧 audio';
             audioLink = `<div class="song-audio"><a class="audio-link" href="${driveUrl}" ${linkTarget} title="${linkTitle}"><span class="media-full">${linkText}</span><span class="media-short">${linkTextShort}</span></a></div>`;
         }
-        let chartLink = song.chart_path ? `<div class="song-audio"><a class="audio-link" href="/chart/${song.id}" target="_blank" title="Open linked chart"><span class="media-full">📄 Open chart</span><span class="media-short">📄 chart</span></a></div>` : '';
+        let chartLink = song.chart_path ? `<div class="song-audio"><a class="audio-link" href="#" onclick="openChartViewer(${song.id}); return false;" title="Open linked chart"><span class="media-full">📄 Open chart</span><span class="media-short">📄 chart</span></a></div>` : '';
         mediaRowHTML = `<div class="song-media-row">${audioLink}${chartLink}</div>`;
     }
 

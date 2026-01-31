@@ -1680,3 +1680,127 @@ header h1 {
     }
 }
 
+/* ==================== CHART VIEWER MODAL ==================== */
+/* Full-screen viewer for charts/leadsheets with close button (especially useful for PWA) */
+
+.chart-viewer-modal {
+    display: none;
+    position: fixed;
+    z-index: 2000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--bg-primary);
+    flex-direction: column;
+}
+
+.chart-viewer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    min-height: 50px;
+    flex-shrink: 0;
+}
+
+.chart-viewer-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    margin-right: 15px;
+}
+
+.chart-viewer-close {
+    background: var(--danger);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 1.4rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.chart-viewer-close:hover {
+    background: #c82333;
+    transform: scale(1.05);
+}
+
+.chart-viewer-close:active {
+    transform: scale(0.95);
+}
+
+.chart-viewer-frame {
+    flex: 1;
+    width: 100%;
+    border: none;
+    background: white;
+}
+
+/* Ensure the close button is always visible and easy to tap on mobile */
+@media (max-width: 768px) {
+    .chart-viewer-header {
+        padding: 8px 12px;
+    }
+    
+    .chart-viewer-title {
+        font-size: 1rem;
+    }
+    
+    .chart-viewer-close {
+        width: 44px;
+        height: 44px;
+        font-size: 1.5rem;
+    }
+}
+
+/* Download fallback for non-viewable chart formats */
+.chart-viewer-download {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-primary);
+    padding: 20px;
+}
+
+.download-message {
+    text-align: center;
+    max-width: 300px;
+}
+
+.download-message .download-icon {
+    font-size: 4rem;
+    display: block;
+    margin-bottom: 20px;
+}
+
+.download-message p {
+    color: var(--text-secondary);
+    margin-bottom: 25px;
+    font-size: 1.1rem;
+    line-height: 1.5;
+}
+
+.download-message .file-type {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.download-message .download-link {
+    display: inline-block;
+    padding: 12px 30px;
+    font-size: 1.1rem;
+}
